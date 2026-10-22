@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      2.4
+// @version      2.5
 // @description  Recolecta Carné, Identificación, Nombre, Correo, Carrera y Recinto (páginas de 19 filas) y confirma voluntarios "Sin Confirmar". Panel movible y minimizable.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://github.com/Chepooooo/Bit-coras-SIPROV/blob/main/Bitacoras.users.js
@@ -648,3 +648,4 @@
     bindTabs();
   }
 })();
+//holamundo
