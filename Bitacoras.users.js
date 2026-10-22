@@ -4,6 +4,8 @@
 // @version      2.4
 // @description  Recolecta Carné, Identificación, Nombre, Correo, Carrera y Recinto (páginas de 19 filas) y confirma voluntarios "Sin Confirmar". Panel movible y minimizable.
 // @match        https://siprov.ucr.ac.cr/*
+// @updateURL    https://github.com/Chepooooo/Bit-coras-SIPROV/blob/main/Bitacoras.users.js
+// @downloadURL  https://github.com/Chepooooo/Bit-coras-SIPROV/blob/main/Bitacoras.users.js
 // @grant        none
 // @run-at       document-end
 // ==/UserScript==
