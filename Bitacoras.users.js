@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      2.11
-// @description  Recolecta Carné, Identificación, Nombre, Correo, Carrera y Recinto (páginas de 19 filas) y confirma voluntarios "Sin Confirmar". Panel movible y minimizable.
+// @version      2.13
+// @description  Recolecta datos y confirma voluntarios. Tabla con columnas colapsables y copiado a Excel.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
 // @downloadURL  https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
@@ -28,6 +28,9 @@
   const confLines = [];
   let confSummary = "";
   let confHeadText = "Confirmación de voluntarios";
+  
+  // Estado para el acordeón de columnas (true = visible, false = oculto)
+  let showDetails = false; 
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const waitFor = async (fn, timeout = 20000) => {
@@ -399,11 +402,14 @@
     const start = pageIdx * PAGE;
     const slice = data.slice(start, start + PAGE);
 
-    const th = "border:1px solid #999;padding:4px 8px;background:#eee;text-align:center";
-    const td = "border:1px solid #ccc;padding:3px 8px;vertical-align:top;";
-    const tdCell = v => (v === NF
-      ? '<td style="' + td + 'color:#b00;font-style:italic">' + esc(v) + "</td>"
-      : '<td style="' + td + '">' + esc(v) + "</td>");
+    const th = "border:1px solid #999;padding:4px 8px;background:#eee;text-align:center;font-size:11px;white-space:nowrap";
+    const td = "border:1px solid #ccc;padding:3px 8px;vertical-align:top;font-size:12px;";
+    const tdCell = (v, isHidden) => {
+      const style = isHidden ? td + 'display:none;' : td;
+      return v === NF 
+        ? '<td style="' + style + 'color:#b00;font-style:italic">' + esc(v) + "</td>"
+        : '<td style="' + style + '">' + esc(v) + "</td>";
+    };
 
     let nav = "";
     if (pages > 1) {
@@ -421,53 +427,31 @@
         (start + 1) + "–" + (start + slice.length) + " de " + data.length + "</div>";
     }
 
-    // Cabeceras: solo Carné y Nombre tienen botón de copiar individual en la cabecera principal.
-    // Los demás se pueden copiar usando el botón general "__all__" o desde el código si se desea.
-    const headHtml = `
-      <th style="${th}">#</th>
-      <th style="${th}">Carné<br><button data-col="Carné" style="cursor:pointer;margin-top:4px">Copiar</button></th>
-      <th style="${th}">Nombre<br><button data-col="Nombre" style="cursor:pointer;margin-top:4px">Copiar</button></th>
-      <th style="${th}">Más Datos<br><span style="font-size:10px;font-weight:normal">(Clic en fila)</span></th>
-      <th style="${th}">Todo<br><button data-col="__all__" style="cursor:pointer;margin-top:4px">Copiar</button></th>
-    `;
+    const isDet = c => c !== "Carné" && c !== "Nombre";
+    const headHtml = COLS.map(c =>
+      `<th style="${th} ${isDet(c) && !showDetails ? 'display:none;' : ''}">${esc(c)}<br><button data-col="${esc(c)}" style="cursor:pointer;margin-top:4px;font-size:10px">Copiar</button></th>`
+    ).join("");
 
     const bodyRows = slice.map((r, i) => {
-      const isNF = c => r[c] === NF ? 'color:#b00;font-style:italic' : '';
-      
-      const detallesHtml = `
-        <div style="display:flex;flex-direction:column;gap:4px;background:#f9f9f9;padding:6px;border-radius:4px;margin-top:4px;border:1px solid #ddd">
-          <div><b>Cédula:</b> <span style="${isNF('Identificación')}">${esc(r['Identificación'])}</span></div>
-          <div><b>Correo:</b> <span style="${isNF('Correo')}">${esc(r['Correo'])}</span></div>
-          <div><b>Carrera:</b> <span style="${isNF('Carrera')}">${esc(r['Carrera'])}</span></div>
-          <div><b>Recinto:</b> <span style="${isNF('Recinto')}">${esc(r['Recinto'])}</span></div>
-        </div>
-      `;
-
-      return `<tr>
-        <td style="${td}color:#777">${start + i + 1}</td>
-        ${tdCell(r['Carné'])}
-        ${tdCell(r['Nombre'])}
-        <td style="${td}">
-          <details style="cursor:pointer">
-            <summary style="font-size:11px; color:#1a73e8; user-select:none;">Ver detalles</summary>
-            ${detallesHtml}
-          </details>
-        </td>
-        <td></td>
-      </tr>`;
+      const cells = COLS.map(c => tdCell(r[c], isDet(c) && !showDetails)).join("");
+      return `<tr><td style="${td}color:#777">${start + i + 1}</td>${cells}</tr>`;
     }).join("");
 
     panel.innerHTML =
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:12px">' +
-      "<b>" + data.length + " registros</b><span>" +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:12px;flex-wrap:wrap">' +
+      "<b>" + data.length + " registros</b>" +
+      '<div style="display:flex;gap:6px;align-items:center">' +
+      '<button id="sp-toggle" style="cursor:pointer;background:' + (showDetails ? '#f0f0f0' : '#1a73e8') + ';color:' + (showDetails ? '#000' : '#fff') + ';border:1px solid #ccc;padding:6px 12px;border-radius:4px;font-weight:bold">' + (showDetails ? 'Ocultar detalles' : 'Mostrar detalles') + '</button>' +
+      '<button id="sp-copy-all" style="cursor:pointer;background:#1a73e8;color:#fff;border:none;padding:6px 12px;border-radius:4px;font-weight:bold">📋 Copiar Todo (Tabla)</button>' +
       '<button id="sp-run" style="cursor:pointer">Recolectar de nuevo</button> ' +
       '<button id="sp-clear" style="cursor:pointer">Borrar datos</button> ' +
-      '<button id="sp-close" style="cursor:pointer">✕</button></span></div>' +
+      '<button id="sp-close" style="cursor:pointer">✕</button></div></div>' +
       tabsHtml() + nav +
-      '<table style="border-collapse:collapse;width:100%"><thead><tr>' + headHtml +
-      "</tr></thead><tbody>" + bodyRows + "</tbody></table>" +
+      '<div style="overflow-x:auto;max-width:100%">' +
+      '<table style="border-collapse:collapse;width:100%"><thead><tr><th style="' + th + '">#</th>' + headHtml +
+      "</tr></thead><tbody>" + bodyRows + "</tbody></table></div>" +
       '<div id="sp-msg" style="margin-top:6px;color:' + color + ';min-height:16px">' + esc(msg) + "</div>" +
-      '<div style="margin-top:4px;font-size:11px;color:#666">Haz clic en <b>Ver detalles</b> para desplegar la información adicional.<br>En rojo: datos no encontrados.</div>';
+      '<div style="margin-top:4px;font-size:11px;color:#666">Usa <b>Copiar Todo</b> para llevarte la tabla completa a Excel. Los botones individuales copian toda la columna.</div>';
 
     panel.querySelector("#sp-close").onclick = closePanel;
     panel.querySelector("#sp-run").onclick = runScrape;
@@ -479,6 +463,26 @@
         render("Datos borrados");
       }
     };
+    
+    // Botón para mostrar/ocultar columnas sin perder los datos
+    panel.querySelector("#sp-toggle").onclick = () => {
+      showDetails = !showDetails;
+      render(msg, isError); 
+    };
+
+    // Botón Mágico: Copiar Todo
+    panel.querySelector("#sp-copy-all").onclick = async () => {
+      const plain = COLS.join("\t") + "\n" + slice.map(r => COLS.map(c => (r[c] == null ? "" : r[c])).join("\t")).join("\n");
+      const html = buildHtml(COLS, slice);
+      const ok = await copyToClipboard(plain, html);
+      const msgEl = panel.querySelector("#sp-msg");
+      if (msgEl) {
+        msgEl.textContent = ok
+          ? "✔ Tabla completa copiada (lista para pegar en Excel)"
+          : "No se pudo copiar";
+      }
+    };
+
     bindTabs();
     const prev = panel.querySelector("#sp-prev");
     const next = panel.querySelector("#sp-next");
@@ -491,25 +495,13 @@
     panel.querySelectorAll("button[data-col]").forEach(b => {
       b.onclick = async () => {
         const col = b.dataset.col;
-        const all = col === "__all__";
-        
-        let colsToCopy = all ? COLS : [col];
-        let plain = "";
-        
-        if (all) {
-          plain = COLS.join("\t") + "\n" + slice.map(r => COLS.map(c => (r[c] == null ? "" : r[c])).join("\t")).join("\n");
-        } else {
-          plain = slice.map(r => (r[col] == null ? "" : r[col])).join("\n");
-        }
-
-        const html = buildHtml(colsToCopy, slice);
+        const plain = slice.map(r => (r[col] == null ? "" : r[col])).join("\n");
+        const html = buildHtml([col], slice);
         const ok = await copyToClipboard(plain, html);
-        const que = all ? "Tabla completa" : "Columna " + col;
-        const donde = pages > 1 ? " · página " + (pageIdx + 1) + " de " + pages : "";
-        const msgEl = panel ? panel.querySelector("#sp-msg") : null;
+        const msgEl = panel.querySelector("#sp-msg");
         if (msgEl) {
           msgEl.textContent = ok
-            ? "✔ " + que + " copiada" + donde + " (" + slice.length + " filas)"
+            ? "✔ Columna " + col + " copiada (" + slice.length + " filas)"
             : "No se pudo copiar";
         }
       };
