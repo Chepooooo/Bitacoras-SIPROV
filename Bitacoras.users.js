@@ -1,11 +1,9 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      2.11
-// @description  Recolecta Carné, Identificación, Nombre, Correo, Carrera y Recinto (páginas de 19 filas) y confirma voluntarios "Sin Confirmar". Panel movible y minimizable.
+// @version      2.6
+// @description  Recolecta datos (Carné, Nombre, etc.) y confirma voluntarios. Tabla con detalles desplegables.
 // @match        https://siprov.ucr.ac.cr/*
-// @updateURL    https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
-// @downloadURL  https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
 // @grant        none
 // @run-at       document-end
 // ==/UserScript==
@@ -136,8 +134,8 @@
   document.documentElement.appendChild(fab);
 
   // ---------- Ventana: barra de título + contenido ----------
-  let shell = null;       // contenedor completo (barra + contenido)
-  let panel = null;       // zona de contenido
+  let shell = null;       
+  let panel = null;       
   let keepAlive = null;
   let minimized = false;
   const pos = { top: 20, left: 20 };
@@ -190,7 +188,6 @@
     shell.appendChild(panel);
     document.documentElement.appendChild(shell);
 
-    // Minimizar / restaurar
     bar.querySelector("#sp-min").onclick = () => { minimized = !minimized; applyMin(); };
     bar.addEventListener("dblclick", e => {
       if (e.target.closest("button")) return;
@@ -198,7 +195,6 @@
       applyMin();
     });
 
-    // Mover arrastrando la barra
     bar.addEventListener("pointerdown", e => {
       if (e.target.closest("button")) return;
       const r = shell.getBoundingClientRect();
@@ -401,8 +397,8 @@
     const start = pageIdx * PAGE;
     const slice = data.slice(start, start + PAGE);
 
-    const th = "border:1px solid #999;padding:4px 8px;background:#eee";
-    const td = "border:1px solid #ccc;padding:3px 8px;";
+    const th = "border:1px solid #999;padding:4px 8px;background:#eee;text-align:center";
+    const td = "border:1px solid #ccc;padding:3px 8px;vertical-align:top;";
     const tdCell = v => (v === NF
       ? '<td style="' + td + 'color:#b00;font-style:italic">' + esc(v) + "</td>"
       : '<td style="' + td + '">' + esc(v) + "</td>");
@@ -423,12 +419,41 @@
         (start + 1) + "–" + (start + slice.length) + " de " + data.length + "</div>";
     }
 
-    const headCols = COLS.map(c =>
-      '<th style="' + th + '">' + esc(c) + '<br><button data-col="' + esc(c) +
-      '" style="cursor:pointer;margin-top:4px">Copiar</button></th>').join("");
-    const bodyRows = slice.map((r, i) =>
-      '<tr><td style="' + td + 'color:#777">' + (start + i + 1) + "</td>" +
-      COLS.map(c => tdCell(r[c])).join("") + "<td></td></tr>").join("");
+    // Cabeceras: solo Carné y Nombre tienen botón de copiar individual en la cabecera principal.
+    // Los demás se pueden copiar usando el botón general "__all__" o desde el código si se desea.
+    const headHtml = `
+      <th style="${th}">#</th>
+      <th style="${th}">Carné<br><button data-col="Carné" style="cursor:pointer;margin-top:4px">Copiar</button></th>
+      <th style="${th}">Nombre<br><button data-col="Nombre" style="cursor:pointer;margin-top:4px">Copiar</button></th>
+      <th style="${th}">Más Datos<br><span style="font-size:10px;font-weight:normal">(Clic en fila)</span></th>
+      <th style="${th}">Todo<br><button data-col="__all__" style="cursor:pointer;margin-top:4px">Copiar</button></th>
+    `;
+
+    const bodyRows = slice.map((r, i) => {
+      const isNF = c => r[c] === NF ? 'color:#b00;font-style:italic' : '';
+      
+      const detallesHtml = `
+        <div style="display:flex;flex-direction:column;gap:4px;background:#f9f9f9;padding:6px;border-radius:4px;margin-top:4px;border:1px solid #ddd">
+          <div><b>Cédula:</b> <span style="${isNF('Identificación')}">${esc(r['Identificación'])}</span></div>
+          <div><b>Correo:</b> <span style="${isNF('Correo')}">${esc(r['Correo'])}</span></div>
+          <div><b>Carrera:</b> <span style="${isNF('Carrera')}">${esc(r['Carrera'])}</span></div>
+          <div><b>Recinto:</b> <span style="${isNF('Recinto')}">${esc(r['Recinto'])}</span></div>
+        </div>
+      `;
+
+      return `<tr>
+        <td style="${td}color:#777">${start + i + 1}</td>
+        ${tdCell(r['Carné'])}
+        ${tdCell(r['Nombre'])}
+        <td style="${td}">
+          <details style="cursor:pointer">
+            <summary style="font-size:11px; color:#1a73e8; user-select:none;">Ver detalles</summary>
+            ${detallesHtml}
+          </details>
+        </td>
+        <td></td>
+      </tr>`;
+    }).join("");
 
     panel.innerHTML =
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:12px">' +
@@ -437,12 +462,10 @@
       '<button id="sp-clear" style="cursor:pointer">Borrar datos</button> ' +
       '<button id="sp-close" style="cursor:pointer">✕</button></span></div>' +
       tabsHtml() + nav +
-      '<table style="border-collapse:collapse"><thead><tr><th style="' + th + '">#</th>' + headCols +
-      '<th style="' + th + '">Todo<br><button data-col="__all__" style="cursor:pointer;margin-top:4px">Copiar</button></th>' +
+      '<table style="border-collapse:collapse;width:100%"><thead><tr>' + headHtml +
       "</tr></thead><tbody>" + bodyRows + "</tbody></table>" +
       '<div id="sp-msg" style="margin-top:6px;color:' + color + ';min-height:16px">' + esc(msg) + "</div>" +
-      '<div style="margin-top:4px;font-size:11px;color:#666">Copiar copia solo las filas de esta página (máx. ' +
-      PAGE + "), lista para pegar en Word, Docs o Excel.<br>En rojo: datos que no se encontraron en el perfil.</div>";
+      '<div style="margin-top:4px;font-size:11px;color:#666">Haz clic en <b>Ver detalles</b> para desplegar la información adicional.<br>En rojo: datos no encontrados.</div>';
 
     panel.querySelector("#sp-close").onclick = closePanel;
     panel.querySelector("#sp-run").onclick = runScrape;
@@ -467,11 +490,17 @@
       b.onclick = async () => {
         const col = b.dataset.col;
         const all = col === "__all__";
-        const cols = all ? COLS : [col];
-        const plain = all
-          ? COLS.join("\t") + "\n" + slice.map(r => COLS.map(c => (r[c] == null ? "" : r[c])).join("\t")).join("\n")
-          : slice.map(r => (r[col] == null ? "" : r[col])).join("\n");
-        const html = buildHtml(cols, slice);
+        
+        let colsToCopy = all ? COLS : [col];
+        let plain = "";
+        
+        if (all) {
+          plain = COLS.join("\t") + "\n" + slice.map(r => COLS.map(c => (r[c] == null ? "" : r[c])).join("\t")).join("\n");
+        } else {
+          plain = slice.map(r => (r[col] == null ? "" : r[col])).join("\n");
+        }
+
+        const html = buildHtml(colsToCopy, slice);
         const ok = await copyToClipboard(plain, html);
         const que = all ? "Tabla completa" : "Columna " + col;
         const donde = pages > 1 ? " · página " + (pageIdx + 1) + " de " + pages : "";
@@ -648,4 +677,3 @@
     bindTabs();
   }
 })();
-//holamundo 2.0 y chao
