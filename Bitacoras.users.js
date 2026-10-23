@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      2.13
-// @description  Recolecta datos y confirma voluntarios. Tabla con columnas colapsables y copiado a Excel.
+// @version      2.14
+// @description  Recolecta datos y confirma voluntarios. Columnas colapsables y copiado rápido.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
 // @downloadURL  https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
@@ -405,10 +405,10 @@
     const th = "border:1px solid #999;padding:4px 8px;background:#eee;text-align:center;font-size:11px;white-space:nowrap";
     const td = "border:1px solid #ccc;padding:3px 8px;vertical-align:top;font-size:12px;";
     const tdCell = (v, isHidden) => {
-      const style = isHidden ? td + 'display:none;' : td;
+      if (isHidden) return "";
       return v === NF 
-        ? '<td style="' + style + 'color:#b00;font-style:italic">' + esc(v) + "</td>"
-        : '<td style="' + style + '">' + esc(v) + "</td>";
+        ? '<td style="' + td + 'color:#b00;font-style:italic">' + esc(v) + "</td>"
+        : '<td style="' + td + '">' + esc(v) + "</td>";
     };
 
     let nav = "";
@@ -428,10 +428,14 @@
     }
 
     const isDet = c => c !== "Carné" && c !== "Nombre";
-    const headHtml = COLS.map(c =>
-      `<th style="${th} ${isDet(c) && !showDetails ? 'display:none;' : ''}">${esc(c)}<br><button data-col="${esc(c)}" style="cursor:pointer;margin-top:4px;font-size:10px">Copiar</button></th>`
-    ).join("");
+    
+    // Generar cabeceras (solo se muestran las de detalle si showDetails es true)
+    const headHtml = COLS.map(c => {
+      if (isDet(c) && !showDetails) return "";
+      return `<th style="${th}">${esc(c)}<br><button data-col="${esc(c)}" style="cursor:pointer;margin-top:4px;font-size:10px">Copiar</button></th>`;
+    }).join("");
 
+    // Generar filas
     const bodyRows = slice.map((r, i) => {
       const cells = COLS.map(c => tdCell(r[c], isDet(c) && !showDetails)).join("");
       return `<tr><td style="${td}color:#777">${start + i + 1}</td>${cells}</tr>`;
@@ -440,9 +444,12 @@
     panel.innerHTML =
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:12px;flex-wrap:wrap">' +
       "<b>" + data.length + " registros</b>" +
-      '<div style="display:flex;gap:6px;align-items:center">' +
+      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
+      
+      // Botones modificados
       '<button id="sp-toggle" style="cursor:pointer;background:' + (showDetails ? '#f0f0f0' : '#1a73e8') + ';color:' + (showDetails ? '#000' : '#fff') + ';border:1px solid #ccc;padding:6px 12px;border-radius:4px;font-weight:bold">' + (showDetails ? 'Ocultar detalles' : 'Mostrar detalles') + '</button>' +
-      '<button id="sp-copy-all" style="cursor:pointer;background:#1a73e8;color:#fff;border:none;padding:6px 12px;border-radius:4px;font-weight:bold">📋 Copiar Todo (Tabla)</button>' +
+      '<button id="sp-copy-basic" style="cursor:pointer;background:#1a73e8;color:#fff;border:none;padding:6px 12px;border-radius:4px;font-weight:bold">📋 Copiar Carné y Nombre</button>' +
+      
       '<button id="sp-run" style="cursor:pointer">Recolectar de nuevo</button> ' +
       '<button id="sp-clear" style="cursor:pointer">Borrar datos</button> ' +
       '<button id="sp-close" style="cursor:pointer">✕</button></div></div>' +
@@ -451,7 +458,7 @@
       '<table style="border-collapse:collapse;width:100%"><thead><tr><th style="' + th + '">#</th>' + headHtml +
       "</tr></thead><tbody>" + bodyRows + "</tbody></table></div>" +
       '<div id="sp-msg" style="margin-top:6px;color:' + color + ';min-height:16px">' + esc(msg) + "</div>" +
-      '<div style="margin-top:4px;font-size:11px;color:#666">Usa <b>Copiar Todo</b> para llevarte la tabla completa a Excel. Los botones individuales copian toda la columna.</div>';
+      '<div style="margin-top:4px;font-size:11px;color:#666">Los detalles se pueden ocultar para ahorrar espacio. Los botones de copiar siempre extraen los datos completos.</div>';
 
     panel.querySelector("#sp-close").onclick = closePanel;
     panel.querySelector("#sp-run").onclick = runScrape;
@@ -464,21 +471,22 @@
       }
     };
     
-    // Botón para mostrar/ocultar columnas sin perder los datos
+    // Botón para mostrar/ocultar columnas
     panel.querySelector("#sp-toggle").onclick = () => {
       showDetails = !showDetails;
       render(msg, isError); 
     };
 
-    // Botón Mágico: Copiar Todo
-    panel.querySelector("#sp-copy-all").onclick = async () => {
-      const plain = COLS.join("\t") + "\n" + slice.map(r => COLS.map(c => (r[c] == null ? "" : r[c])).join("\t")).join("\n");
-      const html = buildHtml(COLS, slice);
+    // Botón para copiar solo Carné y Nombre
+    panel.querySelector("#sp-copy-basic").onclick = async () => {
+      const cols = ["Carné", "Nombre"];
+      const plain = cols.join("\t") + "\n" + slice.map(r => cols.map(c => (r[c] == null ? "" : r[c])).join("\t")).join("\n");
+      const html = buildHtml(cols, slice);
       const ok = await copyToClipboard(plain, html);
       const msgEl = panel.querySelector("#sp-msg");
       if (msgEl) {
         msgEl.textContent = ok
-          ? "✔ Tabla completa copiada (lista para pegar en Excel)"
+          ? "✔ Carné y Nombre copiados (lista para pegar en Excel)"
           : "No se pudo copiar";
       }
     };
