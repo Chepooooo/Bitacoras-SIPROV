@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      9.1
-// @description  Recolecta datos, confirma voluntarios, busca personas y copia machotes.
+// @version      9.2
+// @description  Recolecta datos, confirma voluntarios, busca personas y copia machotes. Búsqueda con paginación.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
 // @downloadURL  https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
@@ -16,7 +16,6 @@
   if (window.__siprovTM) return;
   window.__siprovTM = true;
 
-  // NUEVO ORDEN SOLICITADO
   const COLS = ["Carné", "Nombre", "Identificación", "Correo", "Celular", "Carrera", "Recinto"];
   const PAGE = 19;
   const NF = "No encontrado";
@@ -680,34 +679,57 @@
             continue;
         }
 
-        const rows = getRows();
-        for (let tr of rows) {
-            if (esListaEspera(tr)) continue;
-            const link = nameLink(tr);
-            if (!link) continue;
+        // NUEVO: Iterar sobre todas las páginas del grupo
+        const totalPaginas = currentPage().total;
+        
+        for (let p = 1; p <= totalPaginas; p++) {
+            if (stopFlag) break;
             
-            const nombre = link.textContent.trim();
-            
-            if (matchQuery(nombre, query)) {
-                forceClick(link);
-                const entroPerfil = await waitForOrNull(regresarBtnPerfil, 15000);
-                if (entroPerfil) {
-                    await sleep(300);
-                    const carne = (carneEl() && carneEl().textContent.trim()) || "-";
-                    const tel = (celularEl() && celularEl().textContent.trim()) || "-";
-                    
-                    let existing = matches.find(m => m.carne === carne && carne !== "-");
-                    if (existing) {
-                        if (!existing.grupo.split(', ').includes(g)) {
-                            existing.grupo += `, ${g}`;
+            if (p > 1) {
+                try {
+                    await goToPage(p);
+                } catch (e) {
+                    break; // Si falla la paginación, salir del bucle de páginas
+                }
+            }
+
+            const rows = getRows();
+            for (let tr of rows) {
+                if (esListaEspera(tr)) continue;
+                const link = nameLink(tr);
+                if (!link) continue;
+                
+                const nombre = link.textContent.trim();
+                
+                if (matchQuery(nombre, query)) {
+                    forceClick(link);
+                    const entroPerfil = await waitForOrNull(regresarBtnPerfil, 15000);
+                    if (entroPerfil) {
+                        await sleep(300);
+                        const carne = (carneEl() && carneEl().textContent.trim()) || "-";
+                        const tel = (celularEl() && celularEl().textContent.trim()) || "-";
+                        
+                        let existing = matches.find(m => m.carne === carne && carne !== "-");
+                        if (existing) {
+                            if (!existing.grupo.split(', ').includes(g)) {
+                                existing.grupo += `, ${g}`;
+                            }
+                        } else {
+                            matches.push({ nombre, carne, tel, grupo: g });
                         }
-                    } else {
-                        matches.push({ nombre, carne, tel, grupo: g });
+                        
+                        forceClick(regresarBtnPerfil());
+                        await waitFor(() => getRows().length > 0, 15000);
+                        await sleep(400);
+                        
+                        // AL VOLVER DEL PERFIL, VOLVEMOS A LA PÁGINA 1. 
+                        // Debemos regresar a la página 'p' para continuar buscando en las filas restantes.
+                        if (p > 1) {
+                            try {
+                                await goToPage(p);
+                            } catch(e) {}
+                        }
                     }
-                    
-                    forceClick(regresarBtnPerfil());
-                    await waitFor(() => getRows().length > 0, 15000);
-                    await sleep(400);
                 }
             }
         }
@@ -964,7 +986,6 @@
         contentHtml += `</div>`;
       }
 
-      // Se quitó la columna de Grupo
       contentHtml += `<div style="overflow:auto;border:1px solid #ddd;border-radius:6px;"><table style="border-collapse:collapse;width:100%;"><thead><tr><th style="${th}">#</th>`;
       COLS.forEach(c => {
         if (isDet(c) && !showDetails) return;
@@ -973,7 +994,6 @@
       contentHtml += `</tr></thead><tbody>`;
 
       slice.forEach((r, i) => {
-        // Se quitó la celda de Grupo
         contentHtml += `<tr><td style="${td}color:#888;text-align:center;">${start + i + 1}</td>`;
         COLS.forEach(c => {
           if (isDet(c) && !showDetails) return;
@@ -1026,7 +1046,7 @@
         const currPage = pageIndexes[selectedGroup] || 0;
         const slice = groupedData[selectedGroup].slice(currPage * PAGE, (currPage + 1) * PAGE);
         
-        let plain = COLS.join("\t") + "\n"; // Sin columna Grupo
+        let plain = COLS.join("\t") + "\n";
         slice.forEach(r => {
             plain += COLS.map(c => r[c] || "").join("\t") + "\n";
         });
