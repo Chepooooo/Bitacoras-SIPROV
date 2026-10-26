@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      9.4
-// @description  Recolecta datos, confirma voluntarios (multi-página rápido) y busca personas.
+// @version      9.5
+// @description  Recolecta datos, confirma voluntarios (lógica 2.6), busca personas y copia machotes.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
 // @downloadURL  https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
@@ -97,6 +97,12 @@
   const esListaEspera = tr => /lista\s*de\s*espera/i.test(tr.innerText);
   const pendiente = tr => /sin\s*confirmar/i.test(tr.innerText.replace(/\s+/g, " "));
   
+  const cfgLink = tr => links(tr).find(a => /configurar/i.test(a.textContent));
+  const nombreDe = tr => {
+    const a = links(tr).find(x => x.textContent.trim() && !/configurar|desinscribir/i.test(x.textContent));
+    return a ? a.textContent.trim() : "";
+  };
+
   const carneEl = () => document.querySelector('span[id$=":carne_ee"]');
   const correoEl = () => document.querySelector('span[id$=":correo_electronico_ee"]');
   const carreraEl = () => document.querySelector('span[id$=":carrera_ee"]');
@@ -403,7 +409,7 @@
       panel.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:12px;height:100%;">
           <div style="font-weight:bold;font-size:16px;color:#333;">Confirmar Voluntarios</div>
-          <div style="font-size:13px;color:#666;">Busca y confirma a los voluntarios "Sin Confirmar" en todas las páginas del grupo actual.</div>
+          <div style="font-size:13px;color:#666;">Busca y confirma a los voluntarios "Sin Confirmar" en el grupo actual.</div>
           
           <div style="display:flex; gap:10px;">
             <button id="tw-run-confirm" style="flex:1;padding:12px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px;transition:background 0.2s;">Buscar «Sin Confirmar» y confirmar</button>
@@ -503,134 +509,119 @@
     }
   };
 
-  // ---------- Lógica: Confirmar Voluntarios ----------
-  const confirmarUno = async (nombre) => {
-    // Encontrar la fila exacta por nombre
-    let tr = getRows().find(r => {
-        const a = links(r).find(x => x.textContent.trim() === nombre);
-        return a;
-    });
-    
-    if (!tr) throw new Error(`No se encontró la fila de ${nombre}`);
+  // ---------- Lógica: Confirmar Voluntarios (LÓGICA V2.6 RESTAURADA) ----------
+  const scanPendientes = async () => {
+    const total = currentPage().total;
+    const nombres = [];
+    for (let p = 1; p <= total; p++) {
+      await goToPage(p);
+      getRows().filter(pendiente).forEach(tr => nombres.push(nombreDe(tr)));
+    }
+    await goToPage(1);
+    return nombres;
+  };
 
-    const cfgLink = [...tr.querySelectorAll("a, input")].find(el => (el.textContent && el.textContent.toLowerCase().includes("configurar")) || (el.value && el.value.toLowerCase().includes("configurar")));
-    if (!cfgLink) throw new Error(`No se encontró botón configurar para ${nombre}`);
+  const confirmarUno = async tr => {
+    const btnConfig = [...tr.querySelectorAll("a, input")].find(el => (el.textContent && el.textContent.toLowerCase().includes("configurar")) || (el.value && el.value.toLowerCase().includes("configurar")));
+    if (!btnConfig) throw new Error("No se encontró 'Configurar' en la fila.");
 
-    forceClick(cfgLink);
+    forceClick(btnConfig);
+    await waitFor(() => document.querySelector("input.opConfigurar") || document.querySelector("input.opRegresar"), 20000);
+    await sleep(400);
 
-    // Esperar modal o vista de perfil
-    await waitFor(() => document.querySelector("input.opConfigurar") || document.querySelector("input.opGuardar") || document.querySelector("input.opConfirmar"), 15000);
-    await sleep(300);
-
-    const btnConfigProfile = document.querySelector("input.opConfigurar");
-    if (btnConfigProfile) {
-        forceClick(btnConfigProfile);
-        await waitFor(() => document.querySelector("input.opConfirmar") || document.querySelector("input.opGuardar"), 10000);
+    const configurarBtn = document.querySelector("input.opConfigurar");
+    if (configurarBtn) {
+        forceClick(configurarBtn);
+        await waitFor(() => document.querySelector("input.opConfirmar") || document.querySelector("input.opGuardar"), 20000);
         await sleep(300);
     }
 
-    const btnConfirm = document.querySelector("input.opConfirmar");
-    if (btnConfirm) {
-        forceClick(btnConfirm);
+    const confirmarBtn = document.querySelector("input.opConfirmar");
+    if (confirmarBtn) {
+        forceClick(confirmarBtn);
+        await waitFor(() => !document.querySelector("input.opConfirmar") && document.querySelector("input.opGuardar"), 20000);
         await sleep(300);
     }
 
-    const btnSave = document.querySelector("input.opGuardar");
-    if (!btnSave) throw new Error(`No se encontró botón guardar para ${nombre}`);
+    const guardarBtn = document.querySelector("input.opGuardar");
+    if (!guardarBtn) throw new Error("No se encontró 'Guardar'.");
+    forceClick(guardarBtn);
 
-    forceClick(btnSave);
+    await waitFor(() => !document.querySelector("input.opGuardar"), 20000);
+    await sleep(600);
 
-    // Esperar a que cierre el modal
-    await waitFor(() => !document.querySelector("input.opGuardar"), 15000);
-
-    // Si quedamos en el perfil, volver a la tabla
-    const btnBack = document.querySelector("input.opRegresar");
-    if (btnBack) {
-        forceClick(btnBack);
-        await waitFor(() => getRows().length > 0, 15000);
+    const regresarBtn = document.querySelector("input.opRegresar");
+    if (regresarBtn) {
+        forceClick(regresarBtn);
+        await waitFor(() => getRows().length && !document.querySelector("input.opConfigurar"), 20000);
+        await sleep(600);
     }
+  };
 
-    // CONFIRMACIÓN VISUAL: esperar a que el nombre ya no diga "Sin Confirmar" en la tabla
+  const recover = async () => {
     try {
-        await waitFor(() => {
-            const checkTr = getRows().find(r => {
-                const a = links(r).find(x => x.textContent.trim() === nombre);
-                return a;
-            });
-            if (!checkTr) return true; // Si desapareció, asumimos éxito
-            return !pendiente(checkTr); // Si ya no está pendiente, éxito
-        }, 10000);
-    } catch(e) {
-        // Si da timeout visual, continuamos de todas formas para no atascarnos
+      const btnCancelar = document.querySelector("input.opCancelar");
+      if (btnCancelar) { forceClick(btnCancelar); await sleep(800); }
+      const btnConfig = document.querySelector("input.opConfigurar");
+      const btnReg = document.querySelector("input.opRegresar");
+      if (btnConfig && btnReg) { forceClick(btnReg); }
+      await waitFor(() => getRows().length && !document.querySelector("input.opConfigurar"), 15000);
+    } catch (e) {
+      throw new Error("No pude volver al listado tras un error. Revisa la pantalla manualmente.");
     }
-    await sleep(500);
   };
 
   const runConfirmProcess = async (updateStatus) => {
-    updateStatus("Escaneando todas las páginas...");
+    updateStatus("Revisando estados en todas las páginas...");
     
     try {
-      const totalPags = currentPage().total;
-      let totalPendientes = 0;
+      const total = currentPage().total;
+      const pend = await scanPendientes();
 
-      // 1. Escaneo global
-      for (let p = 1; p <= totalPags; p++) {
-          await goToPage(p);
-          totalPendientes += getRows().filter(tr => pendiente(tr) && !esListaEspera(tr)).length;
+      if (!pend.length) {
+        updateStatus("No hay voluntarios «Sin Confirmar». No se modificó nada.");
+        return;
+      }
+      if (!confirm(`Se encontraron ${pend.length} voluntarios "Sin Confirmar" en total.\n\n¿Confirmar su participación?`)) {
+        updateStatus("Cancelado. No se modificó nada.");
+        return;
       }
 
-      if (totalPendientes === 0) {
-          updateStatus("No hay voluntarios «Sin Confirmar» en este grupo.", true);
-          await goToPage(1);
-          return;
-      }
-
-      if (!confirm(`Se encontraron ${totalPendientes} voluntarios "Sin Confirmar". ¿Confirmar su participación?`)) {
-          updateStatus("Cancelado.", true);
-          await goToPage(1);
-          return;
-      }
-
+      const tried = new Set();
       let count = 0;
-      
-      // 2. Bucle por páginas
-      for (let p = 1; p <= totalPags; p++) {
-          if (stopFlag) break;
-          await goToPage(p);
 
-          // 3. Guardar nombres de pendientes de ESTA página
-          let pendingNames = getRows()
-              .filter(tr => pendiente(tr) && !esListaEspera(tr))
-              .map(tr => {
-                  const a = links(tr).find(x => x.textContent.trim() && !/configurar|desinscribir/i.test(x.textContent));
-                  return a ? a.textContent.trim() : null;
-              })
-              .filter(n => n);
-
-          // 4. Confirmar uno por uno
-          for (let nombre of pendingNames) {
-              if (stopFlag) break;
-              
-              await goToPage(p);
-              
-              updateStatus(`Pág ${p}/${totalPags} - Confirmando: ${nombre}... (${count}/${totalPendientes})`);
-              
-              try {
-                  await confirmarUno(nombre);
-                  count++;
-              } catch (err) {
-                  const btnCancel = document.querySelector("input.opCancelar");
-                  if (btnCancel) { forceClick(btnCancel); await sleep(1000); }
-                  const btnReg = regresarBtnPerfil();
-                  if (btnReg) { forceClick(btnReg); await sleep(1500); }
-              }
+      outer:
+      for (let p = 1; p <= total; p++) {
+        await goToPage(p);
+        while (true) {
+          if (stopFlag) { break outer; }
+          
+          const tr = getRows().find(r => pendiente(r) && !tried.has(nombreDe(r)));
+          if (!tr) break;
+          
+          const nombre = nombreDe(tr);
+          tried.add(nombre);
+          updateStatus(`Confirmando: ${nombre}... (${count}/${pend.length})`);
+          
+          try {
+            await confirmarUno(tr);
+            await goToPage(p);
+            const fila = getRows().find(r => nombreDe(r) === nombre);
+            if (fila && /confirmado/i.test(fila.innerText) && !pendiente(fila)) {
+              count++;
+            } else {
+               updateStatus(`⚠ ${nombre} no se ve como confirmado.`);
+            }
+          } catch (e) {
+            updateStatus(`❌ Error con ${nombre}`);
+            await recover();
+            await goToPage(p);
           }
+        }
       }
-
-      updateStatus(`✔ Proceso terminado. ${count} confirmados.`);
-      
+      updateStatus(`✔ Proceso terminado: ${count} confirmados.`);
     } catch (e) {
-      updateStatus("⚠ Error general: " + e.message, true);
+      updateStatus("⚠ " + e.message, true);
     }
   };
 
