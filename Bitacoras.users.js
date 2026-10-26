@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      9.2
-// @description  Recolecta datos, confirma voluntarios, busca personas y copia machotes. Búsqueda con paginación.
+// @version      9.3
+// @description  Recolecta datos, confirma voluntarios (multi-página rápido), busca personas y copia machotes.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
 // @downloadURL  https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
@@ -32,7 +32,7 @@
     const t0 = Date.now();
     while (Date.now() - t0 < timeout) {
       try { const v = fn(); if (v) return v; } catch (e) {}
-      await sleep(200);
+      await sleep(150); // Sondeo rápido
     }
     throw new Error(`Tiempo de espera agotado`);
   };
@@ -41,10 +41,7 @@
   };
   const esc = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
-  const normalizeText = str => {
-      return String(str || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  };
-
+  const normalizeText = str => String(str || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   const matchQuery = (text, query) => {
       const normText = normalizeText(text);
       const words = normalizeText(query).split(/\s+/).filter(w => w.length > 0);
@@ -122,7 +119,7 @@
     if (!link) throw new Error("No encontré el enlace de la página " + n);
     forceClick(link);
     await waitFor(() => currentPage().cur === n && getRows().length);
-    await sleep(500);
+    await sleep(300); // Pausa mínima tras cambio de página
   };
 
   const copyToClipboard = async (plain, html) => {
@@ -406,7 +403,7 @@
       panel.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:12px;height:100%;">
           <div style="font-weight:bold;font-size:16px;color:#333;">Confirmar Voluntarios</div>
-          <div style="font-size:13px;color:#666;">Busca y confirma a los voluntarios "Sin Confirmar" en el grupo actual. Debes estar dentro de la vista de edición del grupo.</div>
+          <div style="font-size:13px;color:#666;">Busca y confirma a los voluntarios "Sin Confirmar" en todas las páginas del grupo actual.</div>
           
           <div style="display:flex; gap:10px;">
             <button id="tw-run-confirm" style="flex:1;padding:12px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px;transition:background 0.2s;">Buscar «Sin Confirmar» y confirmar</button>
@@ -513,70 +510,71 @@
 
     forceClick(cfgLink);
 
-    await waitFor(() => document.querySelector("input.opConfigurar") || document.querySelector("input.opRegresar"), 20000);
-    await sleep(1000);
+    // Esperar modal (Guardar o Confirmar)
+    await waitFor(() => document.querySelector("input.opConfigurar") || document.querySelector("input.opGuardar") || document.querySelector("input.opConfirmar"), 15000);
+    await sleep(300);
 
     const btnConfigProfile = document.querySelector("input.opConfigurar");
     if (btnConfigProfile) {
         forceClick(btnConfigProfile);
+        await waitFor(() => document.querySelector("input.opConfirmar") || document.querySelector("input.opGuardar"), 10000);
+        await sleep(300);
     }
 
-    await waitFor(() => 
-        document.querySelector("input.opConfirmar") || 
-        document.querySelector("input.opGuardar") ||
-        [...document.querySelectorAll('input, button')].some(el => el.value && el.value.toLowerCase().includes("guardar")),
-        20000
-    );
-    await sleep(1000);
-
-    const btnConfirm = document.querySelector("input.opConfirmar") || [...document.querySelectorAll('input, button')].find(el => el.value && el.value.toLowerCase().includes("confirmar"));
+    const btnConfirm = document.querySelector("input.opConfirmar");
     if (btnConfirm) {
         forceClick(btnConfirm);
-        await sleep(1000);
+        await sleep(300);
     }
 
-    const btnSave = document.querySelector("input.opGuardar") || [...document.querySelectorAll('input, button')].find(el => el.value && el.value.toLowerCase().includes("guardar"));
+    const btnSave = document.querySelector("input.opGuardar");
     if (!btnSave) throw new Error("No se encontró 'Guardar' en la modal.");
 
     forceClick(btnSave);
 
-    await waitFor(() => !document.querySelector("input.opGuardar"), 20000);
-    await sleep(1500);
-
+    // Esperar que cierre
+    await waitFor(() => !document.querySelector("input.opGuardar"), 15000);
+    
+    // Si quedamos en la vista de perfil, devolvernos
     const btnBack = document.querySelector("input.opRegresar");
     if (btnBack) {
         forceClick(btnBack);
-        await waitFor(() => getRows().length > 0, 20000);
-        await sleep(1500);
+        await waitFor(() => getRows().length > 0, 15000);
     }
   };
 
   const runConfirmProcess = async (updateStatus) => {
-    updateStatus("Revisando estados...");
+    updateStatus("Escaneando todas las páginas para contar pendientes...");
     
     try {
-      let pendCount = 0;
-      getRows().forEach(tr => {
-          if (pendiente(tr) && !esListaEspera(tr)) {
-              pendCount++;
-          }
-      });
+      const totalPags = currentPage().total;
+      let totalPendientes = 0;
 
-      if (pendCount === 0) {
+      // 1. Escaneo global para conteo exacto
+      for (let p = 1; p <= totalPags; p++) {
+          await goToPage(p);
+          const rows = getRows();
+          totalPendientes += rows.filter(tr => pendiente(tr) && !esListaEspera(tr)).length;
+      }
+
+      if (totalPendientes === 0) {
           updateStatus("No hay voluntarios «Sin Confirmar» en este grupo.", true);
+          await goToPage(1);
           return;
       }
-      
-      if (!confirm(`Se encontraron ${pendCount} voluntarios "Sin Confirmar". ¿Confirmar su participación?`)) {
+
+      if (!confirm(`Se encontraron ${totalPendientes} voluntarios "Sin Confirmar" en las ${totalPags} página(s). ¿Confirmar su participación?`)) {
           updateStatus("Cancelado.", true);
+          await goToPage(1);
           return;
       }
 
       let count = 0;
-      const total = currentPage().total;
+      await goToPage(1); // Volver a la página 1 para empezar
 
+      // 2. Bucle principal de confirmación
       outer:
-      for (let p = 1; p <= total; p++) {
+      for (let p = 1; p <= totalPags; p++) {
           if (stopFlag) break;
           await goToPage(p);
 
@@ -587,24 +585,25 @@
               const targetTr = currentRows.find(tr => pendiente(tr) && !esListaEspera(tr));
 
               if (!targetTr) {
-                  break; 
+                  break; // Pasar a la siguiente página
               }
 
               let name = "Desconocido";
               const firstTd = targetTr.querySelector('td');
               if (firstTd) name = firstTd.innerText.trim().split('\n')[0];
 
-              updateStatus(`Procesando: ${name}...`);
+              updateStatus(`Pág ${p}/${totalPags} - Confirmando: ${name}... (${count}/${totalPendientes})`);
               
               try {
                   await confirmarUno(targetTr);
                   count++;
-                  updateStatus(`Confirmados: ${count} de ${pendCount}`);
               } catch (err) {
                   const btnCancel = document.querySelector("input.opCancelar");
-                  if (btnCancel) { forceClick(btnCancel); await sleep(1000); }
+                  if (btnCancel) { forceClick(btnCancel); await sleep(500); }
                   const btnReg = regresarBtnPerfil();
-                  if (btnReg) { forceClick(btnReg); await sleep(2000); }
+                  if (btnReg) { forceClick(btnReg); await sleep(1000); }
+                  // Si falló, intentar ir a la página 'p' nuevamente
+                  try { await goToPage(p); } catch(e) {}
                   break; 
               }
           }
@@ -679,7 +678,6 @@
             continue;
         }
 
-        // NUEVO: Iterar sobre todas las páginas del grupo
         const totalPaginas = currentPage().total;
         
         for (let p = 1; p <= totalPaginas; p++) {
@@ -689,7 +687,7 @@
                 try {
                     await goToPage(p);
                 } catch (e) {
-                    break; // Si falla la paginación, salir del bucle de páginas
+                    break; 
                 }
             }
 
@@ -722,8 +720,6 @@
                         await waitFor(() => getRows().length > 0, 15000);
                         await sleep(400);
                         
-                        // AL VOLVER DEL PERFIL, VOLVEMOS A LA PÁGINA 1. 
-                        // Debemos regresar a la página 'p' para continuar buscando en las filas restantes.
                         if (p > 1) {
                             try {
                                 await goToPage(p);
