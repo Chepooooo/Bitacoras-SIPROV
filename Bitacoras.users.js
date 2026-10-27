@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      9.5
+// @version      9.6
 // @description  Recolecta datos, confirma voluntarios (lógica 2.6), busca personas y copia machotes.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
@@ -458,6 +458,7 @@
           <div style="display:flex; flex-direction:column; gap:15px;">
               <div>
                   <div style="font-size:13px;font-weight:bold;color:#555;margin-bottom:5px;">1. Link de WhatsApp</div>
+                  <input id="tw-inp-asistente" type="text" placeholder="Nombre del/de la asistente..." style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:14px;outline:none;margin-bottom:8px;">
                   <input id="tw-inp-link" type="text" placeholder="Pega el link aquí..." style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:14px;outline:none;margin-bottom:8px;">
                   <button id="tw-copy-msg1" style="width:100%;padding:10px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;">Copiar Mensaje con Link</button>
               </div>
@@ -483,11 +484,14 @@
 
       panel.querySelector("#tw-copy-msg1").onclick = async () => {
           const link = panel.querySelector("#tw-inp-link").value.trim();
+          const asistente = panel.querySelector("#tw-inp-asistente").value.trim();
+          
           if (!link) {
               updateStatus("Por favor, ingresa un link primero.", true);
               return;
           }
-          const msg1 = `Saludos cordiales, espero que se encuentre muy bien!\n\nLe saluda , asistente del Programa de Voluntariado de la UCR.🌱💙\n\nLe comparto el link del grupo de WA del proyecto en el que usted se inscribió. Por favor unirse para coordinar.\n\n${link}\n\nCualquier consulta con todo gusto. 🙌🏻`;
+          
+          const msg1 = `Saludos cordiales, espero que se encuentre muy bien!\n\nLe saluda ${asistente ? asistente : " "}, asistente del Programa de Voluntariado de la UCR.🌱💙\n\nLe comparto el link del grupo de WA del proyecto en el que usted se inscribió. Por favor unirse para coordinar.\n\n${link}\n\nCualquier consulta con todo gusto. 🙌🏻`;
           const ok = await copyToClipboard(msg1, msg1.replace(/\n/g, '<br>'));
           updateStatus(ok ? "✔ Mensaje 1 copiado con éxito." : "Error al copiar.", !ok);
       };
