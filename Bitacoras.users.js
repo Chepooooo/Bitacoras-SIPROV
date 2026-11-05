@@ -4,8 +4,8 @@
 // @version      9.7
 // @description  Recolecta datos, confirma voluntarios (lógica 2.6) y copia machotes.
 // @match        https://siprov.ucr.ac.cr/*
-// @updateURL    https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
-// @downloadURL  https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
+// @updateURL    https://raw.githubusercontent.com/Chepooooo/Bitacoras-SIPROV/main/Bitacoras.users.js
+// @downloadURL  https://raw.githubusercontent.com/Chepooooo/Bitacoras-SIPROV/main/Bitacoras.users.js
 // @grant        none
 // @run-at       document-end
 // ==/UserScript==
