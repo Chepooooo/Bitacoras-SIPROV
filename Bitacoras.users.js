@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      10.4
-// @description  Recolecta datos, confirma voluntarios (limpieza automática) y copia machotes.
+// @version      10.6
+// @description  Recolecta datos, confirma voluntarios y copia con/sin encabezados.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://raw.githubusercontent.com/Chepooooo/Bitacoras-SIPROV/main/Bitacoras.users.js
 // @downloadURL  https://raw.githubusercontent.com/Chepooooo/Bitacoras-SIPROV/main/Bitacoras.users.js
@@ -129,9 +129,7 @@
   const identificacionEl = () => document.querySelector('span[id$=":identificacion_ee"]');
   const celularEl = () => document.querySelector('span[id$=":telefono_ee"]');
 
-  // RESTAURADO: Buscar botón de regresar en el perfil (solo visible)
   const regresarBtnPerfil = () => getVisibleElement("input.opregresar, input.opRegresar, input[value='regresar'], input[value='Regresar']");
-  
   const btnRegresarGrupo = () => document.querySelector('input[name="sprv_form:btn_cancelar"]');
 
   const currentPage = () => {
@@ -147,6 +145,20 @@
     await waitFor(() => currentPage().cur === n && getRows().length);
     await waitForAjax();
     await sleep(300);
+  };
+
+  // Función modificada para respetar la casilla de encabezados
+  const buildHtml = (cols, rows, includeHeaders) => {
+      let html = `<html><head><meta charset="utf-8"></head><body><!--StartFragment--><table style="border-collapse: collapse;">`;
+      
+      if (includeHeaders && cols.length > 0) {
+          const th = cols.map(c => `<th style="border: 1px solid black; padding: 5px; background-color: #f2f2f2;">${esc(c)}</th>`).join("");
+          html += `<thead><tr>${th}</tr></thead>`;
+      }
+      
+      const trs = rows.map(r => `<tr>${cols.map(c => `<td style="border: 1px solid black; padding: 5px;">${esc(r[c] == null ? "" : r[c])}</td>`).join("")}</tr>`).join("");
+      html += `<tbody>${trs}</tbody></table><!--EndFragment--></body></html>`;
+      return html;
   };
 
   const copyToClipboard = async (plain, html) => {
@@ -895,6 +907,12 @@
         <div style="display:flex;gap:10px;margin-bottom:15px;align-items:center;flex-wrap:wrap;">
           ${selectHtml}
           <button id="tw-toggle" style="cursor:pointer;font-size:12px;padding:8px 12px;background:${showDetails ? '#fff' : '#1a73e8'};color:${showDetails ? '#333' : '#fff'};border:1px solid #ccc;border-radius:6px;font-weight:bold;">${showDetails ? 'Ocultar Detalles' : 'Ver Detalles'}</button>
+          
+          <!-- NUEVO CHECKBOX DE ENCABEZADOS -->
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;background:#f0f0f0;padding:8px 12px;border-radius:6px;border:1px solid #ccc;">
+             <input type="checkbox" id="tw-chk-headers" checked style="cursor:pointer;margin:0;"> Incluir encabezados
+          </label>
+
           <button id="tw-copy-all" style="cursor:pointer;font-size:12px;padding:8px 12px;background:#1a73e8;color:#fff;border:none;border-radius:6px;font-weight:bold;">Copiar Tabla</button>
         </div>
         <div style="flex:1;overflow:auto;">${contentHtml}</div>
@@ -913,29 +931,44 @@
       b.onclick = () => { pageIndexes[selectedGroup] = +b.dataset.page; renderTables(updateStatus); };
     });
 
+    // Copiar columna individual
     container.querySelectorAll("button[data-copycol]").forEach(b => {
       b.onclick = async () => {
+        const includeHeaders = container.querySelector("#tw-chk-headers").checked;
         const col = b.dataset.copycol;
         const currPage = pageIndexes[selectedGroup] || 0;
         const slice = groupedData[selectedGroup].slice(currPage * PAGE, (currPage + 1) * PAGE);
-        const plain = slice.map(r => (r[col] == null ? "" : r[col])).join("\n");
         
-        const ok = await copyToClipboard(plain, plain);
-        container.querySelector("#tw-msg").textContent = ok ? `✔ Columna ${col} copiada (Grupo ${selectedGroup})` : "Error al copiar";
+        let plain = "";
+        if (includeHeaders) plain += col + "\n";
+        plain += slice.map(r => (r[col] == null ? "" : r[col])).join("\n");
+        
+        const html = buildHtml([col], slice, includeHeaders);
+        
+        const ok = await copyToClipboard(plain, html);
+        container.querySelector("#tw-msg").textContent = ok ? `✔ Columna ${col} copiada` : "Error al copiar";
       };
     });
 
+    // Copiar Tabla (Solo columnas visibles y respetando encabezado)
     container.querySelector("#tw-copy-all").onclick = async () => {
+        const includeHeaders = container.querySelector("#tw-chk-headers").checked;
         const currPage = pageIndexes[selectedGroup] || 0;
         const slice = groupedData[selectedGroup].slice(currPage * PAGE, (currPage + 1) * PAGE);
         
-        let plain = COLS.join("\t") + "\n";
+        const visibleCols = COLS.filter(c => c === "Carné" || c === "Nombre" || showDetails);
+        
+        let plain = "";
+        if (includeHeaders) plain += visibleCols.join("\t") + "\n";
+        
         slice.forEach(r => {
-            plain += COLS.map(c => r[c] || "").join("\t") + "\n";
+            plain += visibleCols.map(c => r[c] || "").join("\t") + "\n";
         });
         
-        const ok = await copyToClipboard(plain, plain);
-        container.querySelector("#tw-msg").textContent = ok ? `✔ Tabla del grupo ${selectedGroup} copiada` : "Error al copiar";
+        const html = buildHtml(visibleCols, slice, includeHeaders);
+        const ok = await copyToClipboard(plain, html);
+        
+        container.querySelector("#tw-msg").textContent = ok ? `✔ Tabla copiada (${visibleCols.length} columnas${includeHeaders ? ' con encabezados' : ''})` : "Error al copiar";
     };
   };
 
