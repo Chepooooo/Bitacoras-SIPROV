@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      9.7
-// @description  Recolecta datos, confirma voluntarios (lógica 2.6) y copia machotes.
+// @version      9.9
+// @description  Recolecta datos, confirma voluntarios (lógica 9.5 restaurada) y copia machotes.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://raw.githubusercontent.com/Chepooooo/Bitacoras-SIPROV/main/Bitacoras.users.js
 // @downloadURL  https://raw.githubusercontent.com/Chepooooo/Bitacoras-SIPROV/main/Bitacoras.users.js
@@ -481,7 +481,7 @@
     }
   };
 
-  // ---------- Lógica: Confirmar Voluntarios (LÓGICA V2.6 RESTAURADA) ----------
+  // ---------- Lógica: Confirmar Voluntarios (PAUSAS EXACTAS DE V9.5) ----------
   const scanPendientes = async () => {
     const total = currentPage().total;
     const nombres = [];
@@ -499,20 +499,20 @@
 
     forceClick(btnConfig);
     await waitFor(() => document.querySelector("input.opConfigurar") || document.querySelector("input.opRegresar"), 20000);
-    await sleep(400);
+    await sleep(400); // PAUSA RESTAURADA
 
     const configurarBtn = document.querySelector("input.opConfigurar");
     if (configurarBtn) {
         forceClick(configurarBtn);
         await waitFor(() => document.querySelector("input.opConfirmar") || document.querySelector("input.opGuardar"), 20000);
-        await sleep(300);
+        await sleep(300); // PAUSA RESTAURADA
     }
 
     const confirmarBtn = document.querySelector("input.opConfirmar");
     if (confirmarBtn) {
         forceClick(confirmarBtn);
         await waitFor(() => !document.querySelector("input.opConfirmar") && document.querySelector("input.opGuardar"), 20000);
-        await sleep(300);
+        await sleep(300); // PAUSA RESTAURADA
     }
 
     const guardarBtn = document.querySelector("input.opGuardar");
@@ -520,13 +520,13 @@
     forceClick(guardarBtn);
 
     await waitFor(() => !document.querySelector("input.opGuardar"), 20000);
-    await sleep(600);
+    await sleep(600); // PAUSA RESTAURADA
 
     const regresarBtn = document.querySelector("input.opRegresar");
     if (regresarBtn) {
         forceClick(regresarBtn);
         await waitFor(() => getRows().length && !document.querySelector("input.opConfigurar"), 20000);
-        await sleep(600);
+        await sleep(600); // PAUSA RESTAURADA
     }
   };
 
@@ -564,6 +564,7 @@
 
       outer:
       for (let p = 1; p <= total; p++) {
+        if (stopFlag) break;
         await goToPage(p);
         while (true) {
           if (stopFlag) { break outer; }
