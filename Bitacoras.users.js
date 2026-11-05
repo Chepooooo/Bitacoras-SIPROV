@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      10.3
+// @version      10.4
 // @description  Recolecta datos, confirma voluntarios (limpieza automática) y copia machotes.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://raw.githubusercontent.com/Chepooooo/Bitacoras-SIPROV/main/Bitacoras.users.js
@@ -59,7 +59,6 @@
   // Limpieza forzada de la interfaz (quitar capas de carga, restaurar cursor)
   const cleanupUI = () => {
       document.body.style.cursor = 'default';
-      // Buscar todas las máscaras posibles de ICEfaces y ocultarlas
       const masks = document.querySelectorAll('#iceWait, .iceWait, .icePnlMask, #iceWaitRes, .icePnlBrdr');
       masks.forEach(el => {
           el.style.display = 'none';
@@ -118,7 +117,6 @@
   const esListaEspera = tr => /lista\s*de\s*espera/i.test(tr.innerText);
   const pendiente = tr => /sin\s*confirmar/i.test(tr.innerText.replace(/\s+/g, " "));
   
-  const cfgLink = tr => links(tr).find(a => /configurar/i.test(a.textContent));
   const nombreDe = tr => {
     const a = links(tr).find(x => x.textContent.trim() && !/configurar|desinscribir/i.test(x.textContent));
     return a ? a.textContent.trim() : "";
@@ -131,6 +129,9 @@
   const identificacionEl = () => document.querySelector('span[id$=":identificacion_ee"]');
   const celularEl = () => document.querySelector('span[id$=":telefono_ee"]');
 
+  // RESTAURADO: Buscar botón de regresar en el perfil (solo visible)
+  const regresarBtnPerfil = () => getVisibleElement("input.opregresar, input.opRegresar, input[value='regresar'], input[value='Regresar']");
+  
   const btnRegresarGrupo = () => document.querySelector('input[name="sprv_form:btn_cancelar"]');
 
   const currentPage = () => {
