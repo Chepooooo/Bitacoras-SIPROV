@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      9.9
-// @description  Recolecta datos, confirma voluntarios (lógica 9.5 restaurada) y copia machotes.
+// @version      10.0
+// @description  Recolecta datos, confirma voluntarios (lógica 9.5) y copia machotes. Limpieza de UI.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://raw.githubusercontent.com/Chepooooo/Bitacoras-SIPROV/main/Bitacoras.users.js
 // @downloadURL  https://raw.githubusercontent.com/Chepooooo/Bitacoras-SIPROV/main/Bitacoras.users.js
@@ -47,6 +47,16 @@
     el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
     if (el.click) el.click(); 
+  };
+
+  // Limpieza forzada de la interfaz (quitar capas de carga, restaurar cursor)
+  const cleanupUI = () => {
+      document.body.style.cursor = 'default';
+      const masks = document.querySelectorAll('#iceWait, .iceWait, .icePnlMask, .icePnlBrdr');
+      masks.forEach(el => {
+          el.style.display = 'none';
+          el.style.visibility = 'hidden';
+      });
   };
 
   const style = document.createElement("style");
@@ -481,7 +491,7 @@
     }
   };
 
-  // ---------- Lógica: Confirmar Voluntarios (PAUSAS EXACTAS DE V9.5) ----------
+  // ---------- Lógica: Confirmar Voluntarios (PAUSAS EXACTAS V9.5) ----------
   const scanPendientes = async () => {
     const total = currentPage().total;
     const nombres = [];
@@ -499,20 +509,20 @@
 
     forceClick(btnConfig);
     await waitFor(() => document.querySelector("input.opConfigurar") || document.querySelector("input.opRegresar"), 20000);
-    await sleep(400); // PAUSA RESTAURADA
+    await sleep(400); 
 
     const configurarBtn = document.querySelector("input.opConfigurar");
     if (configurarBtn) {
         forceClick(configurarBtn);
         await waitFor(() => document.querySelector("input.opConfirmar") || document.querySelector("input.opGuardar"), 20000);
-        await sleep(300); // PAUSA RESTAURADA
+        await sleep(300); 
     }
 
     const confirmarBtn = document.querySelector("input.opConfirmar");
     if (confirmarBtn) {
         forceClick(confirmarBtn);
         await waitFor(() => !document.querySelector("input.opConfirmar") && document.querySelector("input.opGuardar"), 20000);
-        await sleep(300); // PAUSA RESTAURADA
+        await sleep(300); 
     }
 
     const guardarBtn = document.querySelector("input.opGuardar");
@@ -520,13 +530,13 @@
     forceClick(guardarBtn);
 
     await waitFor(() => !document.querySelector("input.opGuardar"), 20000);
-    await sleep(600); // PAUSA RESTAURADA
+    await sleep(600); 
 
     const regresarBtn = document.querySelector("input.opRegresar");
     if (regresarBtn) {
         forceClick(regresarBtn);
         await waitFor(() => getRows().length && !document.querySelector("input.opConfigurar"), 20000);
-        await sleep(600); // PAUSA RESTAURADA
+        await sleep(600); 
     }
   };
 
@@ -552,10 +562,12 @@
 
       if (!pend.length) {
         updateStatus("No hay voluntarios «Sin Confirmar». No se modificó nada.");
+        cleanupUI(); // Limpieza final
         return;
       }
       if (!confirm(`Se encontraron ${pend.length} voluntarios "Sin Confirmar" en total.\n\n¿Confirmar su participación?`)) {
         updateStatus("Cancelado. No se modificó nada.");
+        cleanupUI(); // Limpieza final
         return;
       }
 
@@ -595,6 +607,9 @@
       updateStatus(`✔ Proceso terminado: ${count} confirmados.`);
     } catch (e) {
       updateStatus("⚠ " + e.message, true);
+    } finally {
+      // Forzar la limpieza de la interfaz al terminar (quitar capas de carga y restaurar cursor)
+      cleanupUI();
     }
   };
 
