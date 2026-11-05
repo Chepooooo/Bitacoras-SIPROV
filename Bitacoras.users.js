@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      9.6
-// @description  Recolecta datos, confirma voluntarios (lógica 2.6), busca personas y copia machotes.
+// @version      9.7
+// @description  Recolecta datos, confirma voluntarios (lógica 2.6) y copia machotes.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
 // @downloadURL  https://raw.githubusercontent.com/Chepoooo/Bitacoras-SIPROV/main/Bitacoras.users.js
@@ -40,13 +40,6 @@
     try { return await waitFor(fn, timeout); } catch (e) { return null; }
   };
   const esc = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
-
-  const normalizeText = str => String(str || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const matchQuery = (text, query) => {
-      const normText = normalizeText(text);
-      const words = normalizeText(query).split(/\s+/).filter(w => w.length > 0);
-      return words.every(w => normText.includes(w));
-  };
 
   const forceClick = (el) => {
     if (!el) return;
@@ -176,21 +169,19 @@
       <div class="siprov-menu-header">Herramientas SIPROV</div>
       <div id="m-confirmar" class="siprov-menu-item">1. Confirmar voluntarios</div>
       <div id="m-bitacoras" class="siprov-menu-item">2. Recolectar Datos</div>
-      <div id="m-buscar" class="siprov-menu-item">3. Buscar persona</div>
-      <div id="m-machotes" class="siprov-menu-item">4. Machotes Mensajes</div>
+      <div id="m-machotes" class="siprov-menu-item">3. Machotes Mensajes</div>
     `;
     
     if (rect.left > window.innerWidth / 2) menu.style.left = (rect.left - 220) + "px";
     else menu.style.left = rect.left + "px";
     
-    if (rect.top > window.innerHeight / 2) menu.style.top = (rect.top - 180) + "px";
+    if (rect.top > window.innerHeight / 2) menu.style.top = (rect.top - 150) + "px";
     else menu.style.top = (rect.bottom + 8) + "px";
     
     menu.style.display = "flex";
 
     menu.querySelector("#m-confirmar").onclick = () => { closeMenu(); openTaskWindow("confirmar"); };
     menu.querySelector("#m-bitacoras").onclick = () => { closeMenu(); openTaskWindow("bitacoras"); };
-    menu.querySelector("#m-buscar").onclick = () => { closeMenu(); openTaskWindow("buscar"); };
     menu.querySelector("#m-machotes").onclick = () => { closeMenu(); openTaskWindow("machotes"); };
   };
 
@@ -426,29 +417,6 @@
           });
       });
     }
-    else if (viewType === "buscar") {
-      panel.innerHTML = `
-        <div style="display:flex;flex-direction:column;gap:12px;height:100%;">
-          <div style="font-weight:bold;font-size:16px;color:#333;">Buscar Persona</div>
-          <div style="font-size:13px;color:#666;">Ingresa un nombre o apellido para buscarlo.</div>
-          <input id="tw-inp-search" type="text" placeholder="Nombre o apellido..." style="padding:10px;border:1px solid #ccc;border-radius:6px;font-size:14px;outline:none;">
-          
-          <div style="display:flex; gap:10px;">
-            <button id="tw-run-search" style="flex:1;padding:12px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px;">Buscar</button>
-            <button id="tw-stop-search" style="display:none;flex:1;padding:12px;background:#d32f2f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px;">⏹ Detener</button>
-          </div>
-          
-          <div id="tw-status" style="font-size:13px;font-weight:500;"></div>
-          <div id="tw-search-results" style="margin-top:10px;font-size:13px;overflow:auto;"></div>
-        </div>
-      `;
-      
-      setupButtons("tw-run-search", "tw-stop-search", () => {
-          runSearchProcess(updateStatus).then(() => {
-              showProcessFinished("tw-run-search", "tw-stop-search");
-          });
-      });
-    }
     else if (viewType === "machotes") {
       panel.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:12px;height:100%;">
@@ -629,162 +597,6 @@
     }
   };
 
-  // ---------- Lógica: Buscar Persona ----------
-  const runSearchProcess = async (updateStatus) => {
-    const query = panel.querySelector("#tw-inp-search").value.trim();
-    if (!query) {
-        updateStatus("Escribe un nombre para buscar.", true);
-        return;
-    }
-
-    updateStatus("Buscando...");
-    const resDiv = panel.querySelector("#tw-search-results");
-    resDiv.innerHTML = "Iniciando búsqueda...";
-
-    try {
-      let groupsArray = [];
-      const editBtns = [...document.querySelectorAll('a, input')].filter(el => (el.textContent && el.textContent.trim().toLowerCase() === 'editar') || (el.value && el.value.trim().toLowerCase() === 'editar'));
-      
-      editBtns.forEach(btn => {
-          let card = btn.closest('.icePnGpr') || btn.closest('.formularioClaro') || btn.parentElement.parentElement;
-          if (card) {
-              const match = card.textContent.match(/Grupo\s*(\d+)/i);
-              if (match && match[1]) {
-                  const num = String(match[1]).trim();
-                  if (num !== "" && !isNaN(Number(num))) {
-                      if (!groupsArray.includes(num)) groupsArray.push(num);
-                  }
-              }
-          }
-      });
-
-      groupsArray.sort((a,b) => Number(b) - Number(a));
-
-      const matches = [];
-      
-      for (let g of groupsArray) {
-        if (stopFlag) { break; }
-        
-        updateStatus(`Revisando Grupo ${g}...`);
-        
-        const card = await findGroupCard(g);
-        if (!card) {
-            continue;
-        }
-        
-        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        await sleep(400);
-
-        const btnEditar = [...card.querySelectorAll("a, input")].find(el => (el.textContent && el.textContent.trim().toLowerCase() === "editar") || (el.value && el.value.trim().toLowerCase() === "editar"));
-        if (!btnEditar) {
-            continue;
-        }
-
-        forceClick(btnEditar);
-        
-        try {
-            await waitFor(() => document.querySelector('table[id^="tabla_voluntarios"]') || document.querySelector('input.opRegresar'), 15000);
-        } catch(e) {
-            const btnBack = btnRegresarGrupo();
-            if (btnBack) forceClick(btnBack);
-            await sleep(1000);
-            continue;
-        }
-
-        const totalPaginas = currentPage().total;
-        
-        for (let p = 1; p <= totalPaginas; p++) {
-            if (stopFlag) break;
-            
-            if (p > 1) {
-                try {
-                    await goToPage(p);
-                } catch (e) {
-                    break; 
-                }
-            }
-
-            const rows = getRows();
-            for (let tr of rows) {
-                if (esListaEspera(tr)) continue;
-                const link = nameLink(tr);
-                if (!link) continue;
-                
-                const nombre = link.textContent.trim();
-                
-                if (matchQuery(nombre, query)) {
-                    forceClick(link);
-                    const entroPerfil = await waitForOrNull(regresarBtnPerfil, 15000);
-                    if (entroPerfil) {
-                        await sleep(300);
-                        const carne = (carneEl() && carneEl().textContent.trim()) || "-";
-                        const tel = (celularEl() && celularEl().textContent.trim()) || "-";
-                        
-                        let existing = matches.find(m => m.carne === carne && carne !== "-");
-                        if (existing) {
-                            if (!existing.grupo.split(', ').includes(g)) {
-                                existing.grupo += `, ${g}`;
-                            }
-                        } else {
-                            matches.push({ nombre, carne, tel, grupo: g });
-                        }
-                        
-                        forceClick(regresarBtnPerfil());
-                        await waitFor(() => getRows().length > 0, 15000);
-                        await sleep(400);
-                        
-                        if (p > 1) {
-                            try {
-                                await goToPage(p);
-                            } catch(e) {}
-                        }
-                    }
-                }
-            }
-        }
-
-        const btnBack = btnRegresarGrupo();
-        if (btnBack) { 
-            forceClick(btnBack); 
-            try {
-                await waitFor(() => [...document.querySelectorAll('a, input')].some(el => (el.textContent && el.textContent.trim().toLowerCase() === 'editar') || (el.value && el.value.trim().toLowerCase() === 'editar')), 10000);
-            } catch (e) {}
-            await sleep(500); 
-        }
-      }
-
-      if (matches.length > 0) {
-        let html = `<table style="width:100%; border-collapse: collapse;">
-            <thead><tr style="background:#f8f9fa; color:#333;">
-                <th style="border:1px solid #ccc;padding:6px;text-align:left;">Nombre</th>
-                <th style="border:1px solid #ccc;padding:6px;text-align:left;">Carné</th>
-                <th style="border:1px solid #ccc;padding:6px;text-align:left;">Teléfono</th>
-                <th style="border:1px solid #ccc;padding:6px;text-align:left;">Grupo(s)</th>
-            </tr></thead>
-            <tbody>`;
-        matches.forEach(m => {
-            html += `<tr>
-                <td style="border:1px solid #ccc;padding:6px;">${esc(m.nombre)}</td>
-                <td style="border:1px solid #ccc;padding:6px;">${esc(m.carne)}</td>
-                <td style="border:1px solid #ccc;padding:6px;">${esc(m.tel)}</td>
-                <td style="border:1px solid #ccc;padding:6px;">${esc(m.grupo)}</td>
-            </tr>`;
-        });
-        html += `</tbody></table>`;
-        resDiv.innerHTML = html;
-        updateStatus("Búsqueda finalizada.");
-      } else {
-        resDiv.innerHTML = "No se encontró a nadie.";
-        updateStatus("Búsqueda finalizada.");
-      }
-
-    } catch (e) {
-      updateStatus("⚠ Error: " + e.message, true);
-      const btnBack = btnRegresarGrupo();
-      if (btnBack) { forceClick(btnBack); await sleep(2000); }
-    }
-  };
-
   // ---------- Lógica: Encontrar Tarjeta de Grupo ----------
   const findGroupCard = async (g) => {
     const regex = new RegExp('^\\s*Grupo\\s*' + g + '\\s*$', 'i');
@@ -813,260 +625,4 @@
         
         targetEl = checkAllElements();
         if (targetEl) {
-            window.scrollTo(0, 0);
-            return getCard(targetEl);
-        }
-    }
-
-    window.scrollTo(0, 0);
-    return null;
-  };
-
-  const getCard = (el) => {
-    let card = el;
-    while (card && card !== document.body) {
-        if (card.querySelector('a, input') && card.innerText.includes("Editar")) {
-            return card;
-        }
-        card = card.parentElement;
-    }
-    return null;
-  };
-
-  // ---------- Lógica: Scraping Profundo ----------
-  const startScraping = async (grupos, updateStatus) => {
-    groupedData = {};
-    pageIndexes = {};
-    grupos.forEach(g => { groupedData[g] = []; pageIndexes[g] = 0; });
-
-    updateStatus("<b>Iniciando...</b>");
-    
-    for (let g of grupos) {
-      if (stopFlag) { break; }
-      
-      try {
-        updateStatus(`<b>Buscando grupo ${g}...</b>`);
-        
-        const card = await findGroupCard(g);
-        
-        if (!card) {
-          groupedData[g] = [{ Carné: "ERROR", Nombre: `Grupo ${g} no encontrado`, Correo: "-", Identificación: "-", Celular: "-", Carrera: "-", Recinto: "-" }];
-          continue; 
-        }
-        
-        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        await sleep(800);
-
-        const btnEditar = [...card.querySelectorAll("a, input")].find(el => (el.textContent && el.textContent.trim().toLowerCase() === "editar") || (el.value && el.value.trim().toLowerCase() === "editar"));
-        if (!btnEditar) {
-           groupedData[g] = [{ Carné: "ERROR", Nombre: `Botón editar no encontrado en ${g}`, Correo: "-", Identificación: "-", Celular: "-", Carrera: "-", Recinto: "-" }];
-           continue;
-        }
-
-        forceClick(btnEditar);
-        
-        try {
-            await waitFor(() => document.querySelector('input.opRegresar') || document.querySelector('table[id^="tabla_voluntarios"]'), 20000);
-        } catch (e) {
-            groupedData[g] = [{ Carné: "ERROR", Nombre: `No cargó el grupo ${g} (Tiempo agotado)`, Correo: "-", Identificación: "-", Celular: "-", Carrera: "-", Recinto: "-" }];
-            
-            const btnBack = btnRegresarGrupo();
-            if (btnBack) forceClick(btnBack);
-            await sleep(2000);
-            continue;
-        }
-        await sleep(1000);
-
-        const totalPaginas = currentPage().total;
-        
-        for (let p = 1; p <= totalPaginas; p++) {
-          if (stopFlag) break;
-          
-          await goToPage(p);
-          const n = getRows().length;
-          
-          for (let i = 0; i < n; i++) {
-            if (stopFlag) break;
-            
-            const tr = getRows()[i];
-            if (esListaEspera(tr)) continue;
-
-            const link = nameLink(tr);
-            if (!link) continue; 
-            
-            const nombre = link.textContent.trim();
-            updateStatus(`<b>Grupo ${g} (Pág ${p}/${totalPaginas})</b><br>Extrayendo: ${nombre}`);
-            
-            forceClick(link);
-            const entroPerfil = await waitForOrNull(regresarBtnPerfil, 20000);
-            if (!entroPerfil) {
-              groupedData[g].push({ Carné: NF, Nombre: nombre, Correo: NF, Identificación: NF, Celular: NF, Carrera: NF, Recinto: NF });
-              continue;
-            }
-
-            await sleep(400);
-            const carneNode = await waitForOrNull(carneEl, 5000);
-            const correoNode = await waitForOrNull(correoEl, 5000);
-            const carreraNode = await waitForOrNull(carreraEl, 5000);
-            const recintoNode = await waitForOrNull(recintoEl, 5000);
-            const idNode = await waitForOrNull(identificacionEl, 5000);
-            const celularNode = await waitForOrNull(celularEl, 5000);
-
-            groupedData[g].push({
-              Carné: (carneNode && carneNode.textContent.trim()) || NF,
-              Nombre: nombre,
-              Identificación: (idNode && idNode.textContent.trim()) || NF,
-              Correo: (correoNode && correoNode.textContent.trim()) || NF,
-              Celular: (celularNode && celularNode.textContent.trim()) || NF,
-              Carrera: (carreraNode && carreraNode.textContent.trim()) || NF,
-              Recinto: (recintoNode && recintoNode.textContent.trim()) || NF
-            });
-
-            await waitFor(regresarBtnPerfil);
-            forceClick(regresarBtnPerfil());
-            await waitFor(() => getRows().length && !carneEl());
-            await sleep(600);
-            await goToPage(p); 
-          }
-        }
-        
-        updateStatus(`<b>Terminado grupo ${g}. Volviendo...</b>`);
-        
-        const btnBack = btnRegresarGrupo();
-        if (btnBack) {
-            forceClick(btnBack);
-            await sleep(1500);
-            window.scrollTo(0, 0);
-        }
-      } catch (err) {
-        groupedData[g] = [{ Carné: "ERROR", Nombre: `Error: ${err.message}`, Correo: "-", Identificación: "-", Celular: "-", Carrera: "-", Recinto: "-" }];
-        const btnBack = btnRegresarGrupo();
-        if (btnBack) { forceClick(btnBack); await sleep(2000); }
-      }
-    }
-
-    selectedGroup = Object.keys(groupedData).find(k => groupedData[k].length > 0) || "";
-    
-    panel.innerHTML = `<div style="display:flex; flex-direction: column; height:100%;" id="tw-tabla-container"></div>`;
-    renderTables(updateStatus);
-  };
-
-  // ---------- Renderizar Tablas (Navegación por Grupo) ----------
-  const renderTables = (updateStatus) => {
-    const container = panel.querySelector("#tw-tabla-container") || panel;
-    
-    const groups = Object.keys(groupedData).sort((a,b) => Number(b) - Number(a));
-    
-    if (groups.length === 0) {
-      container.innerHTML = `<div style="text-align:center;color:#666;margin-top:20px;">No hay datos para mostrar.</div>`;
-      return;
-    }
-    if (!selectedGroup || !groupedData[selectedGroup]) {
-      selectedGroup = groups[0];
-    }
-
-    let selectHtml = `<select id="tw-group-select" style="padding:8px;font-size:14px;border-radius:6px;border:1px solid #ccc;background:#fff;outline:none;min-width:200px;">`;
-    groups.forEach(g => {
-      const count = groupedData[g].length;
-      const label = (count === 1 && groupedData[g][0].Carné === "ERROR") ? `Grupo ${g} (Error)` : `Grupo ${g} (${count} voluntarios)`;
-      selectHtml += `<option value="${g}" ${g === selectedGroup ? 'selected' : ''}>${label}</option>`;
-    });
-    selectHtml += `</select>`;
-
-    const data = groupedData[selectedGroup];
-    const isErrorGroup = data.length === 1 && data[0].Carné === "ERROR";
-
-    let contentHtml = ``;
-    if (!isErrorGroup) {
-      const totalPages = Math.ceil(data.length / PAGE);
-      const currPage = pageIndexes[selectedGroup] || 0;
-      const start = currPage * PAGE;
-      const slice = data.slice(start, start + PAGE);
-
-      const th = "border-bottom:2px solid #ddd;border-top:1px solid #ddd;padding:10px;background:#f8f9fa;text-align:center;font-size:12px;color:#444;font-weight:bold;white-space:nowrap";
-      const td = "border-bottom:1px solid #eee;padding:8px 10px;vertical-align:top;font-size:13px;";
-      const isDet = c => c !== "Carné" && c !== "Nombre";
-
-      if (totalPages > 1) {
-        contentHtml += `<div style="margin-bottom:12px;display:flex;gap:6px;flex-wrap:wrap;">`;
-        for (let i = 0; i < totalPages; i++) {
-          contentHtml += `<button data-page="${i}" style="cursor:pointer;font-size:11px;padding:4px 10px;border:1px solid #ccc;border-radius:4px;background:#fff;${i === currPage ? "font-weight:bold;background:#1a73e8;color:#fff;border-color:#1a73e8;" : ""}">${i + 1}</button>`;
-        }
-        contentHtml += `</div>`;
-      }
-
-      contentHtml += `<div style="overflow:auto;border:1px solid #ddd;border-radius:6px;"><table style="border-collapse:collapse;width:100%;"><thead><tr><th style="${th}">#</th>`;
-      COLS.forEach(c => {
-        if (isDet(c) && !showDetails) return;
-        contentHtml += `<th style="${th}">${esc(c)}<br><button data-copycol="${c}" style="cursor:pointer;font-size:10px;margin-top:4px;padding:2px 6px;border:1px solid #ccc;border-radius:4px;background:#fff;color:#333;">Copiar</button></th>`;
-      });
-      contentHtml += `</tr></thead><tbody>`;
-
-      slice.forEach((r, i) => {
-        contentHtml += `<tr><td style="${td}color:#888;text-align:center;">${start + i + 1}</td>`;
-        COLS.forEach(c => {
-          if (isDet(c) && !showDetails) return;
-          const val = r[c] === NF ? `<span style="color:#d32f2f;font-style:italic;">${NF}</span>` : esc(r[c]);
-          contentHtml += `<td style="${td}">${val}</td>`;
-        });
-        contentHtml += `</tr>`;
-      });
-      contentHtml += `</tbody></table></div>`;
-    } else {
-      contentHtml += `<div style="color:#d32f2f;font-weight:bold;padding:30px;text-align:center;border:1px dashed #d32f2f;border-radius:8px;background:#fdf2f2;">${esc(data[0].Nombre)}</div>`;
-    }
-
-    container.innerHTML = `
-      <div style="display:flex;flex-direction:column;height:100%;">
-        <div style="display:flex;gap:10px;margin-bottom:15px;align-items:center;flex-wrap:wrap;">
-          ${selectHtml}
-          <button id="tw-toggle" style="cursor:pointer;font-size:12px;padding:8px 12px;background:${showDetails ? '#fff' : '#1a73e8'};color:${showDetails ? '#333' : '#fff'};border:1px solid #ccc;border-radius:6px;font-weight:bold;">${showDetails ? 'Ocultar Detalles' : 'Ver Detalles'}</button>
-          <button id="tw-copy-all" style="cursor:pointer;font-size:12px;padding:8px 12px;background:#1a73e8;color:#fff;border:none;border-radius:6px;font-weight:bold;">Copiar Tabla</button>
-        </div>
-        <div style="flex:1;overflow:auto;">${contentHtml}</div>
-        <div id="tw-msg" style="font-size:12px;color:#2e7d32;min-height:16px;margin-top:10px;font-weight:bold;"></div>
-      </div>
-    `;
-
-    container.querySelector("#tw-group-select").onchange = (e) => {
-      selectedGroup = e.target.value;
-      renderTables(updateStatus);
-    };
-
-    container.querySelector("#tw-toggle").onclick = () => { showDetails = !showDetails; renderTables(updateStatus); };
-    
-    container.querySelectorAll("button[data-page]").forEach(b => {
-      b.onclick = () => { pageIndexes[selectedGroup] = +b.dataset.page; renderTables(updateStatus); };
-    });
-
-    container.querySelectorAll("button[data-copycol]").forEach(b => {
-      b.onclick = async () => {
-        const col = b.dataset.copycol;
-        const currPage = pageIndexes[selectedGroup] || 0;
-        const slice = groupedData[selectedGroup].slice(currPage * PAGE, (currPage + 1) * PAGE);
-        const plain = slice.map(r => (r[col] == null ? "" : r[col])).join("\n");
-        
-        const ok = await copyToClipboard(plain, plain);
-        container.querySelector("#tw-msg").textContent = ok ? `✔ Columna ${col} copiada (Grupo ${selectedGroup})` : "Error al copiar";
-      };
-    });
-
-    container.querySelector("#tw-copy-all").onclick = async () => {
-        const currPage = pageIndexes[selectedGroup] || 0;
-        const slice = groupedData[selectedGroup].slice(currPage * PAGE, (currPage + 1) * PAGE);
-        
-        let plain = COLS.join("\t") + "\n";
-        slice.forEach(r => {
-            plain += COLS.map(c => r[c] || "").join("\t") + "\n";
-        });
-        
-        const ok = await copyToClipboard(plain, plain);
-        container.querySelector("#tw-msg").textContent = ok ? `✔ Tabla del grupo ${selectedGroup} copiada` : "Error al copiar";
-    };
-  };
-
-  setInterval(() => {
-    if (!fab.isConnected) document.documentElement.appendChild(fab);
-  }, 1000);
-
-})();
+            window.scrollTo
