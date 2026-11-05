@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      10.0
-// @description  Recolecta datos, confirma voluntarios (lógica 9.5) y copia machotes. Limpieza de UI.
+// @version      10.3
+// @description  Recolecta datos, confirma voluntarios (limpieza automática) y copia machotes.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://raw.githubusercontent.com/Chepooooo/Bitacoras-SIPROV/main/Bitacoras.users.js
 // @downloadURL  https://raw.githubusercontent.com/Chepooooo/Bitacoras-SIPROV/main/Bitacoras.users.js
@@ -41,6 +41,13 @@
   };
   const esc = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
+  const getVisibleElement = (selector) => {
+      return [...document.querySelectorAll(selector)].find(el => {
+          const style = window.getComputedStyle(el);
+          return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetParent !== null;
+      });
+  };
+
   const forceClick = (el) => {
     if (!el) return;
     el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
@@ -52,11 +59,22 @@
   // Limpieza forzada de la interfaz (quitar capas de carga, restaurar cursor)
   const cleanupUI = () => {
       document.body.style.cursor = 'default';
-      const masks = document.querySelectorAll('#iceWait, .iceWait, .icePnlMask, .icePnlBrdr');
+      // Buscar todas las máscaras posibles de ICEfaces y ocultarlas
+      const masks = document.querySelectorAll('#iceWait, .iceWait, .icePnlMask, #iceWaitRes, .icePnlBrdr');
       masks.forEach(el => {
           el.style.display = 'none';
           el.style.visibility = 'hidden';
+          el.style.zIndex = '-1';
       });
+  };
+
+  const waitForAjax = async (timeout = 10000) => {
+      try {
+          await sleep(200);
+          await waitFor(() => !document.querySelector('#iceWait') && !document.querySelector('.iceWait'), timeout);
+      } catch (e) {
+          cleanupUI();
+      }
   };
 
   const style = document.createElement("style");
@@ -113,8 +131,6 @@
   const identificacionEl = () => document.querySelector('span[id$=":identificacion_ee"]');
   const celularEl = () => document.querySelector('span[id$=":telefono_ee"]');
 
-  const inputBtn = cls => () => document.querySelector("input." + cls);
-  const regresarBtnPerfil = inputBtn("opRegresar"); 
   const btnRegresarGrupo = () => document.querySelector('input[name="sprv_form:btn_cancelar"]');
 
   const currentPage = () => {
@@ -128,6 +144,7 @@
     if (!link) throw new Error("No encontré el enlace de la página " + n);
     forceClick(link);
     await waitFor(() => currentPage().cur === n && getRows().length);
+    await waitForAjax();
     await sleep(300);
   };
 
@@ -491,7 +508,7 @@
     }
   };
 
-  // ---------- Lógica: Confirmar Voluntarios (PAUSAS EXACTAS V9.5) ----------
+  // ---------- Lógica: Confirmar Voluntarios ----------
   const scanPendientes = async () => {
     const total = currentPage().total;
     const nombres = [];
@@ -503,58 +520,85 @@
     return nombres;
   };
 
-  const confirmarUno = async tr => {
+  const confirmarUno = async (nombre) => {
+    let tr = getRows().find(r => nombreDe(r) === nombre);
+    if (!tr) return false;
+
     const btnConfig = [...tr.querySelectorAll("a, input")].find(el => (el.textContent && el.textContent.toLowerCase().includes("configurar")) || (el.value && el.value.toLowerCase().includes("configurar")));
-    if (!btnConfig) throw new Error("No se encontró 'Configurar' en la fila.");
+    if (!btnConfig) return false;
 
     forceClick(btnConfig);
-    await waitFor(() => document.querySelector("input.opConfigurar") || document.querySelector("input.opRegresar"), 20000);
-    await sleep(400); 
-
-    const configurarBtn = document.querySelector("input.opConfigurar");
-    if (configurarBtn) {
-        forceClick(configurarBtn);
-        await waitFor(() => document.querySelector("input.opConfirmar") || document.querySelector("input.opGuardar"), 20000);
-        await sleep(300); 
+    await waitForAjax(); 
+    
+    try {
+        await waitFor(() => getVisibleElement("input.opRegresar") || getVisibleElement("input.opGuardar") || getVisibleElement("input.opConfigurar"), 15000);
+    } catch(e) {
+        return false;
     }
 
-    const confirmarBtn = document.querySelector("input.opConfirmar");
+    const btnRegresar = getVisibleElement("input.opRegresar");
+    if (btnRegresar) {
+        const btnConfigProfile = getVisibleElement("input.opConfigurar");
+        if (btnConfigProfile) {
+            forceClick(btnConfigProfile);
+            await waitForAjax(); 
+            try {
+                await waitFor(() => getVisibleElement("input.opConfirmar") || getVisibleElement("input.opGuardar"), 15000);
+            } catch(e) {
+                return false;
+            }
+        }
+    }
+
+    const confirmarBtn = getVisibleElement("input.opConfirmar");
     if (confirmarBtn) {
         forceClick(confirmarBtn);
-        await waitFor(() => !document.querySelector("input.opConfirmar") && document.querySelector("input.opGuardar"), 20000);
-        await sleep(300); 
+        await waitForAjax();
+        await sleep(400); 
     }
 
-    const guardarBtn = document.querySelector("input.opGuardar");
-    if (!guardarBtn) throw new Error("No se encontró 'Guardar'.");
+    const guardarBtn = getVisibleElement("input.opGuardar");
+    if (!guardarBtn) return false;
+
     forceClick(guardarBtn);
-
-    await waitFor(() => !document.querySelector("input.opGuardar"), 20000);
-    await sleep(600); 
-
-    const regresarBtn = document.querySelector("input.opRegresar");
-    if (regresarBtn) {
-        forceClick(regresarBtn);
-        await waitFor(() => getRows().length && !document.querySelector("input.opConfigurar"), 20000);
-        await sleep(600); 
+    
+    try {
+        await waitFor(() => !getVisibleElement("input.opGuardar"), 15000);
+        await waitForAjax();
+    } catch(e) {
+        cleanupUI();
     }
+
+    const btnRegresarFinal = getVisibleElement("input.opRegresar");
+    if (btnRegresarFinal) {
+        forceClick(btnRegresarFinal);
+        await waitForAjax();
+        try {
+            await waitFor(() => getRows().length > 0 && !getVisibleElement("input.opConfigurar"), 15000);
+        } catch(e) {}
+    }
+    
+    return true;
   };
 
   const recover = async () => {
     try {
-      const btnCancelar = document.querySelector("input.opCancelar");
+      const btnCancelar = getVisibleElement("input.opCancelar");
       if (btnCancelar) { forceClick(btnCancelar); await sleep(800); }
-      const btnConfig = document.querySelector("input.opConfigurar");
-      const btnReg = document.querySelector("input.opRegresar");
-      if (btnConfig && btnReg) { forceClick(btnReg); }
-      await waitFor(() => getRows().length && !document.querySelector("input.opConfigurar"), 15000);
-    } catch (e) {
-      throw new Error("No pude volver al listado tras un error. Revisa la pantalla manualmente.");
-    }
+      
+      const btnConfig = getVisibleElement("input.opConfigurar");
+      const btnReg = getVisibleElement("input.opRegresar");
+      if (btnConfig && btnReg) { 
+          forceClick(btnReg); 
+      }
+      
+      await waitForAjax();
+      await waitFor(() => getRows().length && !getVisibleElement("input.opConfigurar"), 15000);
+    } catch (e) {}
   };
 
   const runConfirmProcess = async (updateStatus) => {
-    updateStatus("Revisando estados en todas las páginas...");
+    updateStatus("Iniciando...");
     
     try {
       const total = currentPage().total;
@@ -562,12 +606,11 @@
 
       if (!pend.length) {
         updateStatus("No hay voluntarios «Sin Confirmar». No se modificó nada.");
-        cleanupUI(); // Limpieza final
         return;
       }
+      
       if (!confirm(`Se encontraron ${pend.length} voluntarios "Sin Confirmar" en total.\n\n¿Confirmar su participación?`)) {
         updateStatus("Cancelado. No se modificó nada.");
-        cleanupUI(); // Limpieza final
         return;
       }
 
@@ -578,6 +621,7 @@
       for (let p = 1; p <= total; p++) {
         if (stopFlag) break;
         await goToPage(p);
+        
         while (true) {
           if (stopFlag) { break outer; }
           
@@ -589,16 +633,15 @@
           updateStatus(`Confirmando: ${nombre}... (${count}/${pend.length})`);
           
           try {
-            await confirmarUno(tr);
-            await goToPage(p);
-            const fila = getRows().find(r => nombreDe(r) === nombre);
-            if (fila && /confirmado/i.test(fila.innerText) && !pendiente(fila)) {
-              count++;
-            } else {
-               updateStatus(`⚠ ${nombre} no se ve como confirmado.`);
+            const exito = await confirmarUno(nombre);
+            if (exito) {
+                await goToPage(p);
+                const fila = getRows().find(r => nombreDe(r) === nombre);
+                if (fila && /confirmado/i.test(fila.innerText) && !pendiente(fila)) {
+                  count++;
+                }
             }
           } catch (e) {
-            updateStatus(`❌ Error con ${nombre}`);
             await recover();
             await goToPage(p);
           }
@@ -608,8 +651,7 @@
     } catch (e) {
       updateStatus("⚠ " + e.message, true);
     } finally {
-      // Forzar la limpieza de la interfaz al terminar (quitar capas de carga y restaurar cursor)
-      cleanupUI();
+      cleanupUI(); // Forzar limpieza al terminar (quita el cursor azul)
     }
   };
 
@@ -703,6 +745,7 @@
             await sleep(2000);
             continue;
         }
+        await waitForAjax();
         await sleep(1000);
 
         const totalPaginas = currentPage().total;
@@ -752,6 +795,7 @@
 
             await waitFor(regresarBtnPerfil);
             forceClick(regresarBtnPerfil());
+            await waitForAjax();
             await waitFor(() => getRows().length && !carneEl());
             await sleep(600);
             await goToPage(p); 
@@ -763,6 +807,7 @@
         const btnBack = btnRegresarGrupo();
         if (btnBack) {
             forceClick(btnBack);
+            await waitForAjax();
             await sleep(1500);
             window.scrollTo(0, 0);
         }
