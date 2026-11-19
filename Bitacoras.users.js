@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      10.6
+// @version      10.8
 // @description  Recolecta datos, confirma voluntarios y copia con/sin encabezados.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://raw.githubusercontent.com/Chepooooo/Bitacoras-SIPROV/main/Bitacoras.users.js
@@ -19,20 +19,20 @@
   const COLS = ["Carné", "Nombre", "Identificación", "Correo", "Celular", "Carrera", "Recinto"];
   const PAGE = 19;
   const NF = "No encontrado";
-  
-  let groupedData = {}; 
-  let pageIndexes = {}; 
+
+  let groupedData = {};
+  let pageIndexes = {};
   let selectedGroup = "";
   let showDetails = false;
   let stopFlag = false;
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
-  
+
   const waitFor = async (fn, timeout = 25000) => {
     const t0 = Date.now();
     while (Date.now() - t0 < timeout) {
       try { const v = fn(); if (v) return v; } catch (e) {}
-      await sleep(150); 
+      await sleep(150);
     }
     throw new Error(`Tiempo de espera agotado`);
   };
@@ -53,7 +53,7 @@
     el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
     el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-    if (el.click) el.click(); 
+    if (el.click) el.click();
   };
 
   // Limpieza forzada de la interfaz (quitar capas de carga, restaurar cursor)
@@ -107,16 +107,16 @@
   const rowRe = /tabla_voluntarios_inscritos_grupo:\d+$/;
   const getRows = () => [...document.querySelectorAll("tr")].filter(tr => rowRe.test(tr.id));
   const links = tr => [...tr.querySelectorAll("a")];
-  
+
   const nameLink = tr => {
     const byId = tr.querySelector('a[id$=":j_id144"]');
     if (byId) return byId;
     return links(tr).find(a => a.querySelector("span.iceOutTxt"));
   };
-  
+
   const esListaEspera = tr => /lista\s*de\s*espera/i.test(tr.innerText);
   const pendiente = tr => /sin\s*confirmar/i.test(tr.innerText.replace(/\s+/g, " "));
-  
+
   const nombreDe = tr => {
     const a = links(tr).find(x => x.textContent.trim() && !/configurar|desinscribir/i.test(x.textContent));
     return a ? a.textContent.trim() : "";
@@ -132,11 +132,22 @@
   const regresarBtnPerfil = () => getVisibleElement("input.opregresar, input.opRegresar, input[value='regresar'], input[value='Regresar']");
   const btnRegresarGrupo = () => document.querySelector('input[name="sprv_form:btn_cancelar"]');
 
+  // ---------- Helpers para el flujo de confirmación (equivalentes a v2.6) ----------
+  const configurarBtn = () => getVisibleElement("input.opConfigurar");
+  const confirmarBtn  = () => getVisibleElement("input.opConfirmar");
+  const guardarBtn    = () => getVisibleElement("input.opGuardar");
+  const regresarBtn   = () => regresarBtnPerfil();
+  const cancelarBtn   = () => getVisibleElement("input.opCancelar");
+  const cfgLink = tr => [...tr.querySelectorAll("a, input")].find(el =>
+    (el.textContent && /configurar/i.test(el.textContent)) ||
+    (el.value && /configurar/i.test(el.value))
+  );
+
   const currentPage = () => {
     const m = [...document.body.innerText.matchAll(/Página (\d+) de (\d+)/g)].pop();
     return m ? { cur: +m[1], total: +m[2] } : { cur: 1, total: 1 };
   };
-  
+
   const goToPage = async n => {
     if (currentPage().cur === n) return;
     const link = [...document.querySelectorAll("a")].find(a => a.textContent.trim() === String(n));
@@ -150,12 +161,12 @@
   // Función modificada para respetar la casilla de encabezados
   const buildHtml = (cols, rows, includeHeaders) => {
       let html = `<html><head><meta charset="utf-8"></head><body><!--StartFragment--><table style="border-collapse: collapse;">`;
-      
+
       if (includeHeaders && cols.length > 0) {
           const th = cols.map(c => `<th style="border: 1px solid black; padding: 5px; background-color: #f2f2f2;">${esc(c)}</th>`).join("");
           html += `<thead><tr>${th}</tr></thead>`;
       }
-      
+
       const trs = rows.map(r => `<tr>${cols.map(c => `<td style="border: 1px solid black; padding: 5px;">${esc(r[c] == null ? "" : r[c])}</td>`).join("")}</tr>`).join("");
       html += `<tbody>${trs}</tbody></table><!--EndFragment--></body></html>`;
       return html;
@@ -186,12 +197,67 @@
   };
 
   // ---------- UI: Botón y Menú Desplegable ----------
+  const rawSaved = localStorage.getItem("siprov_fab_pos");
+  let savedPos = null;
+  try { savedPos = rawSaved ? JSON.parse(rawSaved) : null; } catch (e) { savedPos = null; }
+
   const fab = document.createElement("button");
   fab.id = "siprov-fab";
   fab.innerHTML = "🛠️ Tools";
-  const savedPos = JSON.parse(localStorage.getItem("siprov_fab_pos") || '{"bottom":"20px","right":"20px"}');
-  fab.style.cssText = `position:fixed;z-index:2147483646;padding:10px 18px;background:#1a73e8;color:#fff;border:none;border-radius:25px;cursor:pointer;font:bold 14px sans-serif;box-shadow:0 4px 12px rgba(0,0,0,.3);touch-action:none;transition:transform 0.1s;`;
-  Object.assign(fab.style, savedPos);
+  fab.style.cssText = `position:fixed;z-index:2147483647;padding:10px 18px;background:#1a73e8;color:#fff;border:none;border-radius:25px;cursor:pointer;font:bold 14px sans-serif;box-shadow:0 4px 12px rgba(0,0,0,.3);touch-action:none;transition:transform 0.1s;isolation:isolate;pointer-events:auto;`;
+
+  // Coloca el botón según la posición guardada, PERO solo si cabe en el viewport actual.
+  // Si no cabe (drag viejo desde otra pantalla/zoom, o sync de navegador entre dispositivos),
+  // lo manda a la posición por defecto (bottom-right) y limpia el localStorage corrupto.
+  (function placeFab() {
+    const DEFAULT = () => {
+      fab.style.left = "auto";
+      fab.style.top = "auto";
+      fab.style.bottom = "20px";
+      fab.style.right = "20px";
+    };
+
+    if (!savedPos || (!savedPos.left && !savedPos.top && !savedPos.bottom && !savedPos.right)) {
+      DEFAULT();
+      return;
+    }
+
+    // Si viene de un drag, viene como {left, top}
+    if (savedPos.left || savedPos.top) {
+      const l = parseFloat(savedPos.left);
+      const t = parseFloat(savedPos.top);
+      const approxW = 130, approxH = 46;
+      const fits = !isNaN(l) && !isNaN(t) &&
+        l >= 0 && t >= 0 &&
+        l + approxW <= window.innerWidth &&
+        t + approxH <= window.innerHeight;
+
+      if (fits) {
+        fab.style.left = l + "px";
+        fab.style.top = t + "px";
+        fab.style.bottom = "auto";
+        fab.style.right = "auto";
+      } else {
+        localStorage.removeItem("siprov_fab_pos");
+        DEFAULT();
+      }
+      return;
+    }
+
+    // Si viene con {bottom, right}
+    const b = parseFloat(savedPos.bottom);
+    const r = parseFloat(savedPos.right);
+    if ((!isNaN(b) && b < 0) || (!isNaN(r) && r < 0)) {
+      localStorage.removeItem("siprov_fab_pos");
+      DEFAULT();
+      return;
+    }
+    fab.style.bottom = (!isNaN(b) ? b : 20) + "px";
+    fab.style.right = (!isNaN(r) ? r : 20) + "px";
+    fab.style.left = "auto";
+    fab.style.top = "auto";
+  })();
+
   document.documentElement.appendChild(fab);
 
   const menu = document.createElement("div");
@@ -203,7 +269,7 @@
 
   const toggleMenu = () => {
     if (menu.style.display === "flex") { closeMenu(); return; }
-    
+
     const rect = fab.getBoundingClientRect();
     menu.innerHTML = `
       <div class="siprov-menu-header">Herramientas SIPROV</div>
@@ -211,13 +277,13 @@
       <div id="m-bitacoras" class="siprov-menu-item">2. Recolectar Datos</div>
       <div id="m-machotes" class="siprov-menu-item">3. Machotes Mensajes</div>
     `;
-    
+
     if (rect.left > window.innerWidth / 2) menu.style.left = (rect.left - 220) + "px";
     else menu.style.left = rect.left + "px";
-    
+
     if (rect.top > window.innerHeight / 2) menu.style.top = (rect.top - 150) + "px";
     else menu.style.top = (rect.bottom + 8) + "px";
-    
+
     menu.style.display = "flex";
 
     menu.querySelector("#m-confirmar").onclick = () => { closeMenu(); openTaskWindow("confirmar"); };
@@ -243,7 +309,12 @@
   });
   fab.addEventListener("pointerup", e => {
     if (isDraggingFab) {
-      localStorage.setItem("siprov_fab_pos", JSON.stringify({ left: fab.style.left, top: fab.style.top }));
+      // Guardar como left/top, pero normalizado a enteros
+      const r = fab.getBoundingClientRect();
+      localStorage.setItem("siprov_fab_pos", JSON.stringify({
+        left: Math.round(r.left) + "px",
+        top: Math.round(r.top) + "px"
+      }));
     } else {
       toggleMenu();
     }
@@ -261,14 +332,14 @@
 
   const openTaskWindow = async (viewType) => {
     closeTaskWindow();
-    
+
     taskWindow = document.createElement("div");
     taskWindow.style.cssText = `position:fixed;top:50px;left:50px;z-index:2147483647;background:#fff;color:#000;border:1px solid #aaa;border-radius:8px;font:13px sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.3);width:650px;height:600px;display:flex;flex-direction:column;resize:both;overflow:hidden;`;
 
     const bar = document.createElement("div");
     bar.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:10px 15px;background:#1a73e8;color:#fff;border-radius:7px 7px 0 0;user-select:none;cursor:move;flex-shrink:0;";
     bar.innerHTML = `<b style="font-size:14px;">Herramientas SIPROV</b><button id="tw-close" style="background:none;border:none;color:#fff;cursor:pointer;font-size:18px;font-weight:bold;">✕</button>`;
-    
+
     panel = document.createElement("div");
     panel.style.cssText = "padding:15px;overflow:auto;flex:1;display:flex;flex-direction:column;background:#fcfcfc;";
 
@@ -337,12 +408,12 @@
       panel.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:12px;height:100%;">
           <div style="font-weight:bold;font-size:16px;color:#333;">Recolectar Datos por Grupo</div>
-          
+
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <div style="font-size:13px;color:#666;">Selecciona los grupos detectados (Máx. 15, ordenados de mayor a menor):</div>
             <button id="tw-refresh-groups" style="background:none;border:none;color:#1a73e8;cursor:pointer;font-size:12px;text-decoration:underline;">Refrescar lista</button>
           </div>
-          
+
           <div id="tw-groups-container" style="min-height:60px; display:flex; align-items: center; justify-content: center; background:#f0f0f0; border-radius:6px; padding:15px;">
             <span style="color:#888;">Escaneando grupos...</span>
           </div>
@@ -351,21 +422,21 @@
             <button id="tw-run-bitacora" style="flex:1;padding:12px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px;transition:background 0.2s;">Iniciar Recolección</button>
             <button id="tw-stop-bitacora" style="display:none;flex:1;padding:12px;background:#d32f2f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px;">⏹ Detener</button>
           </div>
-          
+
           <div id="tw-status" style="font-size:13px;font-weight:500;margin-top:10px;"></div>
         </div>
       `;
 
       const container = panel.querySelector("#tw-groups-container");
-      
+
       const loadGroups = async () => {
         container.innerHTML = `<span style="color:#888;">Buscando grupos...</span>`;
-        
+
         let groupsArray = [];
-        
+
         try {
             const editBtns = [...document.querySelectorAll('a, input')].filter(el => (el.textContent && el.textContent.trim().toLowerCase() === 'editar') || (el.value && el.value.trim().toLowerCase() === 'editar'));
-            
+
             editBtns.forEach((btn, idx) => {
                 let card = btn.closest('.icePnGpr') || btn.closest('.formularioClaro') || btn.parentElement.parentElement;
                 if (card) {
@@ -420,7 +491,7 @@
 
       setupButtons("tw-run-bitacora", "tw-stop-bitacora", () => {
         const checked = [...panel.querySelectorAll(".tw-chk-group:checked")].map(chk => chk.value);
-        
+
         if (checked.length === 0) {
            updateStatus("Debes seleccionar al menos un grupo.", true);
            showProcessFinished("tw-run-bitacora", "tw-stop-bitacora");
@@ -435,22 +506,22 @@
             showProcessFinished("tw-run-bitacora", "tw-stop-bitacora");
         });
       });
-    } 
+    }
     else if (viewType === "confirmar") {
       panel.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:12px;height:100%;">
           <div style="font-weight:bold;font-size:16px;color:#333;">Confirmar Voluntarios</div>
           <div style="font-size:13px;color:#666;">Busca y confirma a los voluntarios "Sin Confirmar" en el grupo actual.</div>
-          
+
           <div style="display:flex; gap:10px;">
             <button id="tw-run-confirm" style="flex:1;padding:12px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px;transition:background 0.2s;">Buscar «Sin Confirmar» y confirmar</button>
             <button id="tw-stop-confirm" style="display:none;flex:1;padding:12px;background:#d32f2f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px;">⏹ Detener</button>
           </div>
-          
+
           <div id="tw-status" style="font-size:13px;font-weight:500;margin-top:10px;"></div>
         </div>
       `;
-      
+
       setupButtons("tw-run-confirm", "tw-stop-confirm", () => {
           runConfirmProcess(updateStatus).then(() => {
               showProcessFinished("tw-run-confirm", "tw-stop-confirm");
@@ -462,7 +533,7 @@
         <div style="display:flex;flex-direction:column;gap:12px;height:100%;">
           <div style="font-weight:bold;font-size:16px;color:#333;">Machotes Mensajes</div>
           <div style="font-size:13px;color:#666;margin-bottom:10px;">Selecciona el mensaje que deseas copiar al portapapeles.</div>
-          
+
           <div style="display:flex; flex-direction:column; gap:15px;">
               <div>
                   <div style="font-size:13px;font-weight:bold;color:#555;margin-bottom:5px;">1. Link de WhatsApp</div>
@@ -470,16 +541,16 @@
                   <input id="tw-inp-link" type="text" placeholder="Pega el link aquí..." style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:14px;outline:none;margin-bottom:8px;">
                   <button id="tw-copy-msg1" style="width:100%;padding:10px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;">Copiar Mensaje con Link</button>
               </div>
-              
+
               <hr style="border:none;border-top:1px solid #ddd;margin:5px 0;">
-              
+
               <div>
                   <div style="font-size:13px;font-weight:bold;color:#555;margin-bottom:5px;">2. Mensaje de Instrucciones</div>
                   <button id="tw-copy-msg2" style="width:100%;padding:10px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;">Copiar Texto de Instrucciones</button>
               </div>
-              
+
               <hr style="border:none;border-top:1px solid #ddd;margin:5px 0;">
-              
+
               <div>
                   <div style="font-size:13px;font-weight:bold;color:#555;margin-bottom:5px;">3. Mensaje de Cierre</div>
                   <button id="tw-copy-msg3" style="width:100%;padding:10px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;">Copiar Mensaje de Cierre</button>
@@ -493,12 +564,12 @@
       panel.querySelector("#tw-copy-msg1").onclick = async () => {
           const link = panel.querySelector("#tw-inp-link").value.trim();
           const asistente = panel.querySelector("#tw-inp-asistente").value.trim();
-          
+
           if (!link) {
               updateStatus("Por favor, ingresa un link primero.", true);
               return;
           }
-          
+
           const msg1 = `Saludos cordiales, espero que se encuentre muy bien!\n\nLe saluda ${asistente ? asistente : " "}, asistente del Programa de Voluntariado de la UCR.🌱💙\n\nLe comparto el link del grupo de WA del proyecto en el que usted se inscribió. Por favor unirse para coordinar.\n\n${link}\n\nCualquier consulta con todo gusto. 🙌🏻`;
           const ok = await copyToClipboard(msg1, msg1.replace(/\n/g, '<br>'));
           updateStatus(ok ? "✔ Mensaje 1 copiado con éxito." : "Error al copiar.", !ok);
@@ -521,7 +592,7 @@
     }
   };
 
-  // ---------- Lógica: Confirmar Voluntarios ----------
+  // ---------- Lógica: Confirmar Voluntarios (portada desde v2.6) ----------
   const scanPendientes = async () => {
     const total = currentPage().total;
     const nombres = [];
@@ -533,86 +604,50 @@
     return nombres;
   };
 
-  const confirmarUno = async (nombre) => {
-    let tr = getRows().find(r => nombreDe(r) === nombre);
+  // Secuencia exacta de v2.6: esperar por el botón objetivo, no por AJAX.
+  const confirmarUno = async (tr) => {
     if (!tr) return false;
 
-    const btnConfig = [...tr.querySelectorAll("a, input")].find(el => (el.textContent && el.textContent.toLowerCase().includes("configurar")) || (el.value && el.value.toLowerCase().includes("configurar")));
-    if (!btnConfig) return false;
+    const cfg = cfgLink(tr);
+    if (!cfg) return false;
 
-    forceClick(btnConfig);
-    await waitForAjax(); 
-    
-    try {
-        await waitFor(() => getVisibleElement("input.opRegresar") || getVisibleElement("input.opGuardar") || getVisibleElement("input.opConfigurar"), 15000);
-    } catch(e) {
-        return false;
-    }
+    forceClick(cfg);
+    const btnConfigurar = await waitFor(configurarBtn, 20000);
+    await sleep(400);
 
-    const btnRegresar = getVisibleElement("input.opRegresar");
-    if (btnRegresar) {
-        const btnConfigProfile = getVisibleElement("input.opConfigurar");
-        if (btnConfigProfile) {
-            forceClick(btnConfigProfile);
-            await waitForAjax(); 
-            try {
-                await waitFor(() => getVisibleElement("input.opConfirmar") || getVisibleElement("input.opGuardar"), 15000);
-            } catch(e) {
-                return false;
-            }
-        }
-    }
+    forceClick(btnConfigurar);
+    const btnConfirmar = await waitFor(confirmarBtn, 20000);
+    await sleep(300);
 
-    const confirmarBtn = getVisibleElement("input.opConfirmar");
-    if (confirmarBtn) {
-        forceClick(confirmarBtn);
-        await waitForAjax();
-        await sleep(400); 
-    }
+    forceClick(btnConfirmar);
+    const btnGuardar = await waitFor(guardarBtn, 20000);
+    await sleep(300);
 
-    const guardarBtn = getVisibleElement("input.opGuardar");
-    if (!guardarBtn) return false;
+    forceClick(btnGuardar);
+    await waitFor(() => !guardarBtn(), 20000);
+    await sleep(600);
 
-    forceClick(guardarBtn);
-    
-    try {
-        await waitFor(() => !getVisibleElement("input.opGuardar"), 15000);
-        await waitForAjax();
-    } catch(e) {
-        cleanupUI();
-    }
+    const btnRegresar = await waitFor(regresarBtn, 20000);
+    forceClick(btnRegresar);
+    await waitFor(() => getRows().length && !configurarBtn(), 20000);
+    await sleep(600);
 
-    const btnRegresarFinal = getVisibleElement("input.opRegresar");
-    if (btnRegresarFinal) {
-        forceClick(btnRegresarFinal);
-        await waitForAjax();
-        try {
-            await waitFor(() => getRows().length > 0 && !getVisibleElement("input.opConfigurar"), 15000);
-        } catch(e) {}
-    }
-    
     return true;
   };
 
   const recover = async () => {
     try {
-      const btnCancelar = getVisibleElement("input.opCancelar");
-      if (btnCancelar) { forceClick(btnCancelar); await sleep(800); }
-      
-      const btnConfig = getVisibleElement("input.opConfigurar");
-      const btnReg = getVisibleElement("input.opRegresar");
-      if (btnConfig && btnReg) { 
-          forceClick(btnReg); 
-      }
-      
-      await waitForAjax();
-      await waitFor(() => getRows().length && !getVisibleElement("input.opConfigurar"), 15000);
-    } catch (e) {}
+      if (cancelarBtn()) { forceClick(cancelarBtn()); await sleep(800); }
+      if (configurarBtn() && regresarBtn()) forceClick(regresarBtn());
+      await waitFor(() => getRows().length && !configurarBtn(), 15000);
+    } catch (e) {
+      // No propagamos: dejamos que el loop marque el fallido y siga con el siguiente.
+    }
   };
 
   const runConfirmProcess = async (updateStatus) => {
     updateStatus("Iniciando...");
-    
+
     try {
       const total = currentPage().total;
       const pend = await scanPendientes();
@@ -621,57 +656,70 @@
         updateStatus("No hay voluntarios «Sin Confirmar». No se modificó nada.");
         return;
       }
-      
+
       if (!confirm(`Se encontraron ${pend.length} voluntarios "Sin Confirmar" en total.\n\n¿Confirmar su participación?`)) {
         updateStatus("Cancelado. No se modificó nada.");
         return;
       }
 
+      // Clave de unicidad: id de fila + nombre (soporta homónimos)
+      const rowKey = tr => (tr.id || "") + "|" + nombreDe(tr);
       const tried = new Set();
       let count = 0;
+      let fallidos = 0;
 
       outer:
       for (let p = 1; p <= total; p++) {
         if (stopFlag) break;
         await goToPage(p);
-        
+
         while (true) {
           if (stopFlag) { break outer; }
-          
-          const tr = getRows().find(r => pendiente(r) && !tried.has(nombreDe(r)));
+
+          const tr = getRows().find(r => pendiente(r) && !tried.has(rowKey(r)));
           if (!tr) break;
-          
+
           const nombre = nombreDe(tr);
-          tried.add(nombre);
-          updateStatus(`Confirmando: ${nombre}... (${count}/${pend.length})`);
-          
+          tried.add(rowKey(tr));
+          updateStatus(
+            `<b>Confirmando:</b> ${esc(nombre)}...<br><small>${count + fallidos}/${pend.length}</small>`
+          );
+
           try {
-            const exito = await confirmarUno(nombre);
+            const exito = await confirmarUno(tr);
             if (exito) {
-                await goToPage(p);
-                const fila = getRows().find(r => nombreDe(r) === nombre);
-                if (fila && /confirmado/i.test(fila.innerText) && !pendiente(fila)) {
-                  count++;
-                }
+              await goToPage(p);
+              const fila = getRows().find(r => r.id === tr.id || nombreDe(r) === nombre);
+              if (fila && /confirmado/i.test(fila.innerText) && !pendiente(fila)) {
+                count++;
+              } else {
+                fallidos++;
+              }
+            } else {
+              fallidos++;
             }
           } catch (e) {
+            fallidos++;
             await recover();
-            await goToPage(p);
+            try { await goToPage(p); } catch (navErr) { /* salta a la siguiente página */ }
           }
         }
       }
-      updateStatus(`✔ Proceso terminado: ${count} confirmados.`);
+
+      let msg = `✔ Proceso terminado: ${count} confirmados`;
+      if (fallidos) msg += `, ${fallidos} con problemas.`;
+      updateStatus(msg);
     } catch (e) {
-      updateStatus("⚠ " + e.message, true);
+      updateStatus("⚠ " + esc(e.message), true);
     } finally {
-      cleanupUI(); // Forzar limpieza al terminar (quita el cursor azul)
+      cleanupUI();
     }
   };
 
   // ---------- Lógica: Encontrar Tarjeta de Grupo ----------
   const findGroupCard = async (g) => {
     const regex = new RegExp('^\\s*Grupo\\s*' + g + '\\s*$', 'i');
-    
+
     const checkAllElements = () => {
         const all = document.querySelectorAll('span, div, td, b, strong, a');
         for (let el of all) {
@@ -688,12 +736,12 @@
 
     let scrollY = 0;
     const scrollHeight = document.body.scrollHeight;
-    
+
     while (scrollY < scrollHeight && !stopFlag) {
         scrollY += 800;
         window.scrollTo(0, scrollY);
         await sleep(300);
-        
+
         targetEl = checkAllElements();
         if (targetEl) {
             window.scrollTo(0, 0);
@@ -723,20 +771,20 @@
     grupos.forEach(g => { groupedData[g] = []; pageIndexes[g] = 0; });
 
     updateStatus("<b>Iniciando...</b>");
-    
+
     for (let g of grupos) {
       if (stopFlag) { break; }
-      
+
       try {
         updateStatus(`<b>Buscando grupo ${g}...</b>`);
-        
+
         const card = await findGroupCard(g);
-        
+
         if (!card) {
           groupedData[g] = [{ Carné: "ERROR", Nombre: `Grupo ${g} no encontrado`, Correo: "-", Identificación: "-", Celular: "-", Carrera: "-", Recinto: "-" }];
-          continue; 
+          continue;
         }
-        
+
         card.scrollIntoView({ behavior: 'smooth', block: 'center' });
         await sleep(800);
 
@@ -747,12 +795,12 @@
         }
 
         forceClick(btnEditar);
-        
+
         try {
             await waitFor(() => document.querySelector('input.opRegresar') || document.querySelector('table[id^="tabla_voluntarios"]'), 20000);
         } catch (e) {
             groupedData[g] = [{ Carné: "ERROR", Nombre: `No cargó el grupo ${g} (Tiempo agotado)`, Correo: "-", Identificación: "-", Celular: "-", Carrera: "-", Recinto: "-" }];
-            
+
             const btnBack = btnRegresarGrupo();
             if (btnBack) forceClick(btnBack);
             await sleep(2000);
@@ -762,25 +810,25 @@
         await sleep(1000);
 
         const totalPaginas = currentPage().total;
-        
+
         for (let p = 1; p <= totalPaginas; p++) {
           if (stopFlag) break;
-          
+
           await goToPage(p);
           const n = getRows().length;
-          
+
           for (let i = 0; i < n; i++) {
             if (stopFlag) break;
-            
+
             const tr = getRows()[i];
             if (esListaEspera(tr)) continue;
 
             const link = nameLink(tr);
-            if (!link) continue; 
-            
+            if (!link) continue;
+
             const nombre = link.textContent.trim();
             updateStatus(`<b>Grupo ${g} (Pág ${p}/${totalPaginas})</b><br>Extrayendo: ${nombre}`);
-            
+
             forceClick(link);
             const entroPerfil = await waitForOrNull(regresarBtnPerfil, 20000);
             if (!entroPerfil) {
@@ -811,12 +859,12 @@
             await waitForAjax();
             await waitFor(() => getRows().length && !carneEl());
             await sleep(600);
-            await goToPage(p); 
+            await goToPage(p);
           }
         }
-        
+
         updateStatus(`<b>Terminado grupo ${g}. Volviendo...</b>`);
-        
+
         const btnBack = btnRegresarGrupo();
         if (btnBack) {
             forceClick(btnBack);
@@ -832,7 +880,7 @@
     }
 
     selectedGroup = Object.keys(groupedData).find(k => groupedData[k].length > 0) || "";
-    
+
     panel.innerHTML = `<div style="display:flex; flex-direction: column; height:100%;" id="tw-tabla-container"></div>`;
     renderTables(updateStatus);
   };
@@ -840,9 +888,9 @@
   // ---------- Renderizar Tablas (Navegación por Grupo) ----------
   const renderTables = (updateStatus) => {
     const container = panel.querySelector("#tw-tabla-container") || panel;
-    
+
     const groups = Object.keys(groupedData).sort((a,b) => Number(b) - Number(a));
-    
+
     if (groups.length === 0) {
       container.innerHTML = `<div style="text-align:center;color:#666;margin-top:20px;">No hay datos para mostrar.</div>`;
       return;
@@ -907,8 +955,8 @@
         <div style="display:flex;gap:10px;margin-bottom:15px;align-items:center;flex-wrap:wrap;">
           ${selectHtml}
           <button id="tw-toggle" style="cursor:pointer;font-size:12px;padding:8px 12px;background:${showDetails ? '#fff' : '#1a73e8'};color:${showDetails ? '#333' : '#fff'};border:1px solid #ccc;border-radius:6px;font-weight:bold;">${showDetails ? 'Ocultar Detalles' : 'Ver Detalles'}</button>
-          
-          <!-- NUEVO CHECKBOX DE ENCABEZADOS -->
+
+          <!-- CHECKBOX DE ENCABEZADOS -->
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;background:#f0f0f0;padding:8px 12px;border-radius:6px;border:1px solid #ccc;">
              <input type="checkbox" id="tw-chk-headers" checked style="cursor:pointer;margin:0;"> Incluir encabezados
           </label>
@@ -926,7 +974,7 @@
     };
 
     container.querySelector("#tw-toggle").onclick = () => { showDetails = !showDetails; renderTables(updateStatus); };
-    
+
     container.querySelectorAll("button[data-page]").forEach(b => {
       b.onclick = () => { pageIndexes[selectedGroup] = +b.dataset.page; renderTables(updateStatus); };
     });
@@ -938,13 +986,13 @@
         const col = b.dataset.copycol;
         const currPage = pageIndexes[selectedGroup] || 0;
         const slice = groupedData[selectedGroup].slice(currPage * PAGE, (currPage + 1) * PAGE);
-        
+
         let plain = "";
         if (includeHeaders) plain += col + "\n";
         plain += slice.map(r => (r[col] == null ? "" : r[col])).join("\n");
-        
+
         const html = buildHtml([col], slice, includeHeaders);
-        
+
         const ok = await copyToClipboard(plain, html);
         container.querySelector("#tw-msg").textContent = ok ? `✔ Columna ${col} copiada` : "Error al copiar";
       };
@@ -955,25 +1003,39 @@
         const includeHeaders = container.querySelector("#tw-chk-headers").checked;
         const currPage = pageIndexes[selectedGroup] || 0;
         const slice = groupedData[selectedGroup].slice(currPage * PAGE, (currPage + 1) * PAGE);
-        
+
         const visibleCols = COLS.filter(c => c === "Carné" || c === "Nombre" || showDetails);
-        
+
         let plain = "";
         if (includeHeaders) plain += visibleCols.join("\t") + "\n";
-        
+
         slice.forEach(r => {
             plain += visibleCols.map(c => r[c] || "").join("\t") + "\n";
         });
-        
+
         const html = buildHtml(visibleCols, slice, includeHeaders);
         const ok = await copyToClipboard(plain, html);
-        
+
         container.querySelector("#tw-msg").textContent = ok ? `✔ Tabla copiada (${visibleCols.length} columnas${includeHeaders ? ' con encabezados' : ''})` : "Error al copiar";
     };
   };
 
+  // ---------- Keep-alive del FAB: reinserta si se desmonta y rescata si quedó off-screen ----------
   setInterval(() => {
-    if (!fab.isConnected) document.documentElement.appendChild(fab);
+    if (!fab.isConnected) {
+      (document.body || document.documentElement).appendChild(fab);
+      return;
+    }
+    const r = fab.getBoundingClientRect();
+    const offscreen = r.right < 0 || r.bottom < 0 ||
+      r.left > window.innerWidth || r.top > window.innerHeight;
+    if (offscreen) {
+      fab.style.left = "auto";
+      fab.style.top = "auto";
+      fab.style.bottom = "20px";
+      fab.style.right = "20px";
+      localStorage.removeItem("siprov_fab_pos");
+    }
   }, 1000);
 
 })();
