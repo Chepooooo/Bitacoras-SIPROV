@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SIPROV - Recolector y confirmador de voluntarios
 // @namespace    siprov.helper
-// @version      10.8
+// @version      11.2
 // @description  Recolecta datos, confirma voluntarios y copia con/sin encabezados.
 // @match        https://siprov.ucr.ac.cr/*
 // @updateURL    https://raw.githubusercontent.com/Chepooooo/Bitacoras-SIPROV/main/Bitacoras.users.js
@@ -28,13 +28,13 @@
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-  const waitFor = async (fn, timeout = 25000) => {
+  const waitFor = async (fn, timeout = 20000) => {
     const t0 = Date.now();
     while (Date.now() - t0 < timeout) {
       try { const v = fn(); if (v) return v; } catch (e) {}
       await sleep(150);
     }
-    throw new Error(`Tiempo de espera agotado`);
+    throw new Error(`Tiempo de espera agotado (${timeout}ms)`);
   };
   const waitForOrNull = async (fn, timeout = 5000) => {
     try { return await waitFor(fn, timeout); } catch (e) { return null; }
@@ -56,7 +56,6 @@
     if (el.click) el.click();
   };
 
-  // Limpieza forzada de la interfaz (quitar capas de carga, restaurar cursor)
   const cleanupUI = () => {
       document.body.style.cursor = 'default';
       const masks = document.querySelectorAll('#iceWait, .iceWait, .icePnlMask, #iceWaitRes, .icePnlBrdr');
@@ -132,17 +131,6 @@
   const regresarBtnPerfil = () => getVisibleElement("input.opregresar, input.opRegresar, input[value='regresar'], input[value='Regresar']");
   const btnRegresarGrupo = () => document.querySelector('input[name="sprv_form:btn_cancelar"]');
 
-  // ---------- Helpers para el flujo de confirmación (equivalentes a v2.6) ----------
-  const configurarBtn = () => getVisibleElement("input.opConfigurar");
-  const confirmarBtn  = () => getVisibleElement("input.opConfirmar");
-  const guardarBtn    = () => getVisibleElement("input.opGuardar");
-  const regresarBtn   = () => regresarBtnPerfil();
-  const cancelarBtn   = () => getVisibleElement("input.opCancelar");
-  const cfgLink = tr => [...tr.querySelectorAll("a, input")].find(el =>
-    (el.textContent && /configurar/i.test(el.textContent)) ||
-    (el.value && /configurar/i.test(el.value))
-  );
-
   const currentPage = () => {
     const m = [...document.body.innerText.matchAll(/Página (\d+) de (\d+)/g)].pop();
     return m ? { cur: +m[1], total: +m[2] } : { cur: 1, total: 1 };
@@ -158,15 +146,12 @@
     await sleep(300);
   };
 
-  // Función modificada para respetar la casilla de encabezados
   const buildHtml = (cols, rows, includeHeaders) => {
       let html = `<html><head><meta charset="utf-8"></head><body><!--StartFragment--><table style="border-collapse: collapse;">`;
-
       if (includeHeaders && cols.length > 0) {
           const th = cols.map(c => `<th style="border: 1px solid black; padding: 5px; background-color: #f2f2f2;">${esc(c)}</th>`).join("");
           html += `<thead><tr>${th}</tr></thead>`;
       }
-
       const trs = rows.map(r => `<tr>${cols.map(c => `<td style="border: 1px solid black; padding: 5px;">${esc(r[c] == null ? "" : r[c])}</td>`).join("")}</tr>`).join("");
       html += `<tbody>${trs}</tbody></table><!--EndFragment--></body></html>`;
       return html;
@@ -206,56 +191,32 @@
   fab.innerHTML = "🛠️ Tools";
   fab.style.cssText = `position:fixed;z-index:2147483647;padding:10px 18px;background:#1a73e8;color:#fff;border:none;border-radius:25px;cursor:pointer;font:bold 14px sans-serif;box-shadow:0 4px 12px rgba(0,0,0,.3);touch-action:none;transition:transform 0.1s;isolation:isolate;pointer-events:auto;`;
 
-  // Coloca el botón según la posición guardada, PERO solo si cabe en el viewport actual.
-  // Si no cabe (drag viejo desde otra pantalla/zoom, o sync de navegador entre dispositivos),
-  // lo manda a la posición por defecto (bottom-right) y limpia el localStorage corrupto.
   (function placeFab() {
     const DEFAULT = () => {
-      fab.style.left = "auto";
-      fab.style.top = "auto";
-      fab.style.bottom = "20px";
-      fab.style.right = "20px";
+      fab.style.left = "auto"; fab.style.top = "auto";
+      fab.style.bottom = "20px"; fab.style.right = "20px";
     };
-
     if (!savedPos || (!savedPos.left && !savedPos.top && !savedPos.bottom && !savedPos.right)) {
-      DEFAULT();
-      return;
+      DEFAULT(); return;
     }
-
-    // Si viene de un drag, viene como {left, top}
     if (savedPos.left || savedPos.top) {
-      const l = parseFloat(savedPos.left);
-      const t = parseFloat(savedPos.top);
+      const l = parseFloat(savedPos.left); const t = parseFloat(savedPos.top);
       const approxW = 130, approxH = 46;
-      const fits = !isNaN(l) && !isNaN(t) &&
-        l >= 0 && t >= 0 &&
-        l + approxW <= window.innerWidth &&
-        t + approxH <= window.innerHeight;
-
+      const fits = !isNaN(l) && !isNaN(t) && l >= 0 && t >= 0 && l + approxW <= window.innerWidth && t + approxH <= window.innerHeight;
       if (fits) {
-        fab.style.left = l + "px";
-        fab.style.top = t + "px";
-        fab.style.bottom = "auto";
-        fab.style.right = "auto";
+        fab.style.left = l + "px"; fab.style.top = t + "px"; fab.style.bottom = "auto"; fab.style.right = "auto";
       } else {
-        localStorage.removeItem("siprov_fab_pos");
-        DEFAULT();
+        localStorage.removeItem("siprov_fab_pos"); DEFAULT();
       }
       return;
     }
-
-    // Si viene con {bottom, right}
-    const b = parseFloat(savedPos.bottom);
-    const r = parseFloat(savedPos.right);
+    const b = parseFloat(savedPos.bottom); const r = parseFloat(savedPos.right);
     if ((!isNaN(b) && b < 0) || (!isNaN(r) && r < 0)) {
-      localStorage.removeItem("siprov_fab_pos");
-      DEFAULT();
-      return;
+      localStorage.removeItem("siprov_fab_pos"); DEFAULT(); return;
     }
     fab.style.bottom = (!isNaN(b) ? b : 20) + "px";
     fab.style.right = (!isNaN(r) ? r : 20) + "px";
-    fab.style.left = "auto";
-    fab.style.top = "auto";
+    fab.style.left = "auto"; fab.style.top = "auto";
   })();
 
   document.documentElement.appendChild(fab);
@@ -269,7 +230,6 @@
 
   const toggleMenu = () => {
     if (menu.style.display === "flex") { closeMenu(); return; }
-
     const rect = fab.getBoundingClientRect();
     menu.innerHTML = `
       <div class="siprov-menu-header">Herramientas SIPROV</div>
@@ -277,21 +237,16 @@
       <div id="m-bitacoras" class="siprov-menu-item">2. Recolectar Datos</div>
       <div id="m-machotes" class="siprov-menu-item">3. Machotes Mensajes</div>
     `;
-
     if (rect.left > window.innerWidth / 2) menu.style.left = (rect.left - 220) + "px";
     else menu.style.left = rect.left + "px";
-
     if (rect.top > window.innerHeight / 2) menu.style.top = (rect.top - 150) + "px";
     else menu.style.top = (rect.bottom + 8) + "px";
-
     menu.style.display = "flex";
-
     menu.querySelector("#m-confirmar").onclick = () => { closeMenu(); openTaskWindow("confirmar"); };
     menu.querySelector("#m-bitacoras").onclick = () => { closeMenu(); openTaskWindow("bitacoras"); };
     menu.querySelector("#m-machotes").onclick = () => { closeMenu(); openTaskWindow("machotes"); };
   };
 
-  // Lógica arrastrar botón
   let isDraggingFab = false, dragStartX, dragStartY, startLeft, startTop;
   fab.addEventListener("pointerdown", e => {
     isDraggingFab = false; dragStartX = e.clientX; dragStartY = e.clientY;
@@ -309,18 +264,13 @@
   });
   fab.addEventListener("pointerup", e => {
     if (isDraggingFab) {
-      // Guardar como left/top, pero normalizado a enteros
       const r = fab.getBoundingClientRect();
-      localStorage.setItem("siprov_fab_pos", JSON.stringify({
-        left: Math.round(r.left) + "px",
-        top: Math.round(r.top) + "px"
-      }));
+      localStorage.setItem("siprov_fab_pos", JSON.stringify({ left: Math.round(r.left) + "px", top: Math.round(r.top) + "px" }));
     } else {
       toggleMenu();
     }
   });
 
-  // ---------- UI: Ventana de Tareas Flotante ----------
   let taskWindow = null;
   let panel = null;
 
@@ -332,24 +282,18 @@
 
   const openTaskWindow = async (viewType) => {
     closeTaskWindow();
-
     taskWindow = document.createElement("div");
     taskWindow.style.cssText = `position:fixed;top:50px;left:50px;z-index:2147483647;background:#fff;color:#000;border:1px solid #aaa;border-radius:8px;font:13px sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.3);width:650px;height:600px;display:flex;flex-direction:column;resize:both;overflow:hidden;`;
-
     const bar = document.createElement("div");
     bar.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:10px 15px;background:#1a73e8;color:#fff;border-radius:7px 7px 0 0;user-select:none;cursor:move;flex-shrink:0;";
     bar.innerHTML = `<b style="font-size:14px;">Herramientas SIPROV</b><button id="tw-close" style="background:none;border:none;color:#fff;cursor:pointer;font-size:18px;font-weight:bold;">✕</button>`;
-
     panel = document.createElement("div");
     panel.style.cssText = "padding:15px;overflow:auto;flex:1;display:flex;flex-direction:column;background:#fcfcfc;";
-
     taskWindow.appendChild(bar);
     taskWindow.appendChild(panel);
     document.documentElement.appendChild(taskWindow);
-
     bar.querySelector("#tw-close").onclick = closeTaskWindow;
 
-    // Arrastrar ventana
     let isDragging = false, mStartLeft, mStartTop, mDragStartX, mDragStartY;
     bar.addEventListener("pointerdown", e => {
       if (e.target.closest("button")) return;
@@ -376,7 +320,6 @@
         const startBtn = panel.querySelector(`#${startBtnId}`);
         const stopBtn = panel.querySelector(`#${stopBtnId}`);
         if(!startBtn || !stopBtn) return;
-
         startBtn.onclick = () => {
             startBtn.style.display = "none";
             stopBtn.style.display = "inline-block";
@@ -386,7 +329,6 @@
             stopFlag = false;
             startCb();
         };
-
         stopBtn.onclick = () => {
             stopFlag = true;
             stopBtn.disabled = true;
@@ -408,103 +350,69 @@
       panel.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:12px;height:100%;">
           <div style="font-weight:bold;font-size:16px;color:#333;">Recolectar Datos por Grupo</div>
-
           <div style="display:flex; justify-content:space-between; align-items:center;">
-            <div style="font-size:13px;color:#666;">Selecciona los grupos detectados (Máx. 15, ordenados de mayor a menor):</div>
+            <div style="font-size:13px;color:#666;">Selecciona los grupos detectados (Máx. 15):</div>
             <button id="tw-refresh-groups" style="background:none;border:none;color:#1a73e8;cursor:pointer;font-size:12px;text-decoration:underline;">Refrescar lista</button>
           </div>
-
           <div id="tw-groups-container" style="min-height:60px; display:flex; align-items: center; justify-content: center; background:#f0f0f0; border-radius:6px; padding:15px;">
             <span style="color:#888;">Escaneando grupos...</span>
           </div>
-
           <div style="display:flex; gap:10px; margin-top:5px;">
-            <button id="tw-run-bitacora" style="flex:1;padding:12px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px;transition:background 0.2s;">Iniciar Recolección</button>
+            <button id="tw-run-bitacora" style="flex:1;padding:12px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px;">Iniciar Recolección</button>
             <button id="tw-stop-bitacora" style="display:none;flex:1;padding:12px;background:#d32f2f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px;">⏹ Detener</button>
           </div>
-
           <div id="tw-status" style="font-size:13px;font-weight:500;margin-top:10px;"></div>
         </div>
       `;
-
       const container = panel.querySelector("#tw-groups-container");
-
       const loadGroups = async () => {
         container.innerHTML = `<span style="color:#888;">Buscando grupos...</span>`;
-
         let groupsArray = [];
-
         try {
             const editBtns = [...document.querySelectorAll('a, input')].filter(el => (el.textContent && el.textContent.trim().toLowerCase() === 'editar') || (el.value && el.value.trim().toLowerCase() === 'editar'));
-
-            editBtns.forEach((btn, idx) => {
+            editBtns.forEach((btn) => {
                 let card = btn.closest('.icePnGpr') || btn.closest('.formularioClaro') || btn.parentElement.parentElement;
                 if (card) {
-                    const txt = card.textContent;
-                    const match = txt.match(/Grupo\s*(\d+)/i);
+                    const match = card.textContent.match(/Grupo\s*(\d+)/i);
                     if (match && match[1]) {
                         const num = String(match[1]).trim();
-                        if (num !== "" && !isNaN(Number(num))) {
-                            if (!groupsArray.includes(num)) {
-                                groupsArray.push(num);
-                            }
-                        }
+                        if (num !== "" && !isNaN(Number(num)) && !groupsArray.includes(num)) groupsArray.push(num);
                     }
                 }
             });
-
             if (groupsArray.length === 0) {
-                const html = document.body.innerHTML;
-                const matches = html.matchAll(/Grupo\s*(\d+)/gi);
+                const matches = document.body.innerHTML.matchAll(/Grupo\s*(\d+)/gi);
                 for (const m of matches) {
                     if (m[1]) {
                         const num = String(m[1]).trim();
-                        if (num !== "" && !isNaN(Number(num))) {
-                            if (!groupsArray.includes(num)) {
-                                groupsArray.push(num);
-                            }
-                        }
+                        if (num !== "" && !isNaN(Number(num)) && !groupsArray.includes(num)) groupsArray.push(num);
                     }
                 }
             }
-
         } catch (e) {}
-
         groupsArray.sort((a,b) => Number(b) - Number(a));
         const limitedGroups = groupsArray.slice(0, 15);
-
         if (limitedGroups.length === 0) {
            container.innerHTML = `<span style="color:#d32f2f;">No se detectaron grupos.</span>`;
         } else {
            container.innerHTML = `<div class="siprov-group-list" style="width:100%;">
-             ${limitedGroups.map(g => `
-               <label class="siprov-group-label">
-                 <input type="checkbox" class="tw-chk-group" value="${g}"> Grupo ${g}
-               </label>
-             `).join('')}
+             ${limitedGroups.map(g => `<label class="siprov-group-label"><input type="checkbox" class="tw-chk-group" value="${g}"> Grupo ${g}</label>`).join('')}
            </div>`;
         }
       };
-
       loadGroups();
       panel.querySelector("#tw-refresh-groups").onclick = loadGroups;
-
       setupButtons("tw-run-bitacora", "tw-stop-bitacora", () => {
         const checked = [...panel.querySelectorAll(".tw-chk-group:checked")].map(chk => chk.value);
-
         if (checked.length === 0) {
            updateStatus("Debes seleccionar al menos un grupo.", true);
            showProcessFinished("tw-run-bitacora", "tw-stop-bitacora");
            return;
         }
-
         panel.querySelectorAll(".tw-chk-group").forEach(chk => chk.disabled = true);
         panel.querySelector("#tw-refresh-groups").disabled = true;
         panel.querySelector("#tw-refresh-groups").style.opacity = "0.5";
-
-        startScraping(checked, updateStatus).then(() => {
-            showProcessFinished("tw-run-bitacora", "tw-stop-bitacora");
-        });
+        startScraping(checked, updateStatus).then(() => showProcessFinished("tw-run-bitacora", "tw-stop-bitacora"));
       });
     }
     else if (viewType === "confirmar") {
@@ -512,75 +420,55 @@
         <div style="display:flex;flex-direction:column;gap:12px;height:100%;">
           <div style="font-weight:bold;font-size:16px;color:#333;">Confirmar Voluntarios</div>
           <div style="font-size:13px;color:#666;">Busca y confirma a los voluntarios "Sin Confirmar" en el grupo actual.</div>
-
           <div style="display:flex; gap:10px;">
-            <button id="tw-run-confirm" style="flex:1;padding:12px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px;transition:background 0.2s;">Buscar «Sin Confirmar» y confirmar</button>
+            <button id="tw-run-confirm" style="flex:1;padding:12px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px;">Buscar «Sin Confirmar» y confirmar</button>
             <button id="tw-stop-confirm" style="display:none;flex:1;padding:12px;background:#d32f2f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px;">⏹ Detener</button>
           </div>
-
           <div id="tw-status" style="font-size:13px;font-weight:500;margin-top:10px;"></div>
         </div>
       `;
-
       setupButtons("tw-run-confirm", "tw-stop-confirm", () => {
-          runConfirmProcess(updateStatus).then(() => {
-              showProcessFinished("tw-run-confirm", "tw-stop-confirm");
-          });
+          runConfirmProcess(updateStatus).then(() => showProcessFinished("tw-run-confirm", "tw-stop-confirm"));
       });
     }
     else if (viewType === "machotes") {
       panel.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:12px;height:100%;">
           <div style="font-weight:bold;font-size:16px;color:#333;">Machotes Mensajes</div>
-          <div style="font-size:13px;color:#666;margin-bottom:10px;">Selecciona el mensaje que deseas copiar al portapapeles.</div>
-
           <div style="display:flex; flex-direction:column; gap:15px;">
               <div>
                   <div style="font-size:13px;font-weight:bold;color:#555;margin-bottom:5px;">1. Link de WhatsApp</div>
-                  <input id="tw-inp-asistente" type="text" placeholder="Nombre del/de la asistente..." style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:14px;outline:none;margin-bottom:8px;">
-                  <input id="tw-inp-link" type="text" placeholder="Pega el link aquí..." style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:14px;outline:none;margin-bottom:8px;">
+                  <input id="tw-inp-asistente" type="text" placeholder="Nombre del/de la asistente..." style="width:100%;box-sizing:border-box;padding:10px;margin-bottom:8px;">
+                  <input id="tw-inp-link" type="text" placeholder="Pega el link aquí..." style="width:100%;box-sizing:border-box;padding:10px;margin-bottom:8px;">
                   <button id="tw-copy-msg1" style="width:100%;padding:10px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;">Copiar Mensaje con Link</button>
               </div>
-
               <hr style="border:none;border-top:1px solid #ddd;margin:5px 0;">
-
               <div>
                   <div style="font-size:13px;font-weight:bold;color:#555;margin-bottom:5px;">2. Mensaje de Instrucciones</div>
                   <button id="tw-copy-msg2" style="width:100%;padding:10px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;">Copiar Texto de Instrucciones</button>
               </div>
-
               <hr style="border:none;border-top:1px solid #ddd;margin:5px 0;">
-
               <div>
                   <div style="font-size:13px;font-weight:bold;color:#555;margin-bottom:5px;">3. Mensaje de Cierre</div>
                   <button id="tw-copy-msg3" style="width:100%;padding:10px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;">Copiar Mensaje de Cierre</button>
               </div>
           </div>
-
           <div id="tw-status" style="font-size:13px;font-weight:500;margin-top:15px;text-align:center;"></div>
         </div>
       `;
-
       panel.querySelector("#tw-copy-msg1").onclick = async () => {
           const link = panel.querySelector("#tw-inp-link").value.trim();
           const asistente = panel.querySelector("#tw-inp-asistente").value.trim();
-
-          if (!link) {
-              updateStatus("Por favor, ingresa un link primero.", true);
-              return;
-          }
-
+          if (!link) { updateStatus("Por favor, ingresa un link primero.", true); return; }
           const msg1 = `Saludos cordiales, espero que se encuentre muy bien!\n\nLe saluda ${asistente ? asistente : " "}, asistente del Programa de Voluntariado de la UCR.🌱💙\n\nLe comparto el link del grupo de WA del proyecto en el que usted se inscribió. Por favor unirse para coordinar.\n\n${link}\n\nCualquier consulta con todo gusto. 🙌🏻`;
           const ok = await copyToClipboard(msg1, msg1.replace(/\n/g, '<br>'));
           updateStatus(ok ? "✔ Mensaje 1 copiado con éxito." : "Error al copiar.", !ok);
       };
-
       panel.querySelector("#tw-copy-msg2").onclick = async () => {
           const msg2 = `Saludos cordiales✨ \n\nDesde el Programa de Voluntariado queremos agradecerles el interés por participar en este proyecto sentimos mucha emoción por hacer lo que más nos gusta, *dejar huella*🌱 \n\nPara este proyecto es importante tener en cuenta los siguientes puntos: \n\n✅Llevar botella de agua llena\n✅El uso de la camisa de voluntariado es obligatorio. \n❗Si alguna de las personas inscritas no tiene camisa, puede retirarla entre semana de 8am a 4pm en la oficina del Programa de Voluntariado (https://maps.app.goo.gl/D7LvRuurZ258wgrx5) antes del proyecto, o en su defecto, indicar su talla para enviarla con la persona asistente.\n\n📌El lugar de encuentro es \n✅ Favor ser puntuales, el horario es\n\n¡Gracias por sumarse! ✨ \nEstamos en contacto, cualquier consulta por este medio.`;
           const ok = await copyToClipboard(msg2, msg2.replace(/\n/g, '<br>'));
           updateStatus(ok ? "✔ Mensaje 2 copiado con éxito." : "Error al copiar.", !ok);
       };
-
       panel.querySelector("#tw-copy-msg3").onclick = async () => {
           const msg3 = `Saludos cordiales, los grupos de WhatsApp para proyectos de voluntariado se abren con la finalidad de facilitar la comunicación durante la ejecución del proyecto. Cumplido este objetivo, no queda nada más que *agradecerles su participación e invitarles a que sigan disfrutando de Voluntariado UCR*✨💙`;
           const ok = await copyToClipboard(msg3, msg3.replace(/\n/g, '<br>'));
@@ -592,7 +480,18 @@
     }
   };
 
-  // ---------- Lógica: Confirmar Voluntarios (portada desde v2.6) ----------
+  // =====================================================
+  //  PESTAÑA 2: CONFIRMAR VOLUNTARIOS (LÓGICA EXACTA V2.6)
+  // =====================================================
+  const qsBtn = (cls) => document.querySelector("input." + cls) || document.querySelector("input." + cls.toLowerCase()) || document.querySelector("input." + cls.toUpperCase());
+  const regresarBtn   = () => qsBtn("opRegresar");
+  const configurarBtn = () => qsBtn("opConfigurar");
+  const confirmarBtn  = () => qsBtn("opConfirmar");
+  const guardarBtn    = () => qsBtn("opGuardar");
+  const cancelarBtn   = () => qsBtn("opCancelar");
+
+  const cfgLink = tr => links(tr).find(a => /configurar/i.test(a.textContent));
+
   const scanPendientes = async () => {
     const total = currentPage().total;
     const nombres = [];
@@ -604,52 +503,59 @@
     return nombres;
   };
 
-  // Secuencia exacta de v2.6: esperar por el botón objetivo, no por AJAX.
-  const confirmarUno = async (tr) => {
+  const confirmarUno = async tr => {
     if (!tr) return false;
-
     const cfg = cfgLink(tr);
     if (!cfg) return false;
 
-    forceClick(cfg);
-    const btnConfigurar = await waitFor(configurarBtn, 20000);
+    console.log("[SIPROV DEBUG] Haciendo clic en 'Configurar' (tabla)...");
+    cfg.click();
+    await waitFor(configurarBtn, 20000);
     await sleep(400);
 
-    forceClick(btnConfigurar);
-    const btnConfirmar = await waitFor(confirmarBtn, 20000);
+    console.log("[SIPROV DEBUG] Haciendo clic en 'Configurar' (perfil)...");
+    configurarBtn().click();
+    await waitFor(confirmarBtn, 20000);
     await sleep(300);
 
-    forceClick(btnConfirmar);
-    const btnGuardar = await waitFor(guardarBtn, 20000);
+    console.log("[SIPROV DEBUG] Haciendo clic en 'Confirmar'...");
+    confirmarBtn().click();
+    await waitFor(() => !confirmarBtn() && guardarBtn(), 20000);
     await sleep(300);
 
-    forceClick(btnGuardar);
+    console.log("[SIPROV DEBUG] Haciendo clic en 'Guardar'...");
+    guardarBtn().click();
+    
+    console.log("[SIPROV DEBUG] Esperando a que se guarde...");
     await waitFor(() => !guardarBtn(), 20000);
     await sleep(600);
 
-    const btnRegresar = await waitFor(regresarBtn, 20000);
-    forceClick(btnRegresar);
+    console.log("[SIPROV DEBUG] Buscando botón Regresar...");
+    await waitFor(regresarBtn, 20000);
+    regresarBtn().click();
+    
+    console.log("[SIPROV DEBUG] Esperando volver a la tabla principal...");
     await waitFor(() => getRows().length && !configurarBtn(), 20000);
     await sleep(600);
-
+    
     return true;
   };
 
   const recover = async () => {
     try {
-      if (cancelarBtn()) { forceClick(cancelarBtn()); await sleep(800); }
-      if (configurarBtn() && regresarBtn()) forceClick(regresarBtn());
+      if (cancelarBtn()) { cancelarBtn().click(); await sleep(800); }
+      if (configurarBtn() && regresarBtn()) regresarBtn().click();
       await waitFor(() => getRows().length && !configurarBtn(), 15000);
-    } catch (e) {
-      // No propagamos: dejamos que el loop marque el fallido y siga con el siguiente.
-    }
+    } catch (e) {}
   };
 
   const runConfirmProcess = async (updateStatus) => {
     updateStatus("Iniciando...");
+    console.log("[SIPROV DEBUG] --- INICIANDO PROCESO DE CONFIRMACIÓN ---");
 
     try {
       const total = currentPage().total;
+      console.log("[SIPROV DEBUG] Escaneando pendientes en", total, "páginas...");
       const pend = await scanPendientes();
 
       if (!pend.length) {
@@ -662,8 +568,6 @@
         return;
       }
 
-      // Clave de unicidad: id de fila + nombre (soporta homónimos)
-      const rowKey = tr => (tr.id || "") + "|" + nombreDe(tr);
       const tried = new Set();
       let count = 0;
       let fallidos = 0;
@@ -676,32 +580,29 @@
         while (true) {
           if (stopFlag) { break outer; }
 
-          const tr = getRows().find(r => pendiente(r) && !tried.has(rowKey(r)));
+          const tr = getRows().find(r => pendiente(r) && !tried.has(nombreDe(r)));
           if (!tr) break;
 
           const nombre = nombreDe(tr);
-          tried.add(rowKey(tr));
-          updateStatus(
-            `<b>Confirmando:</b> ${esc(nombre)}...<br><small>${count + fallidos}/${pend.length}</small>`
-          );
+          tried.add(nombre);
+          updateStatus(`<b>Confirmando:</b> ${esc(nombre)}...<br><small>${count + fallidos}/${pend.length}</small>`);
 
           try {
-            const exito = await confirmarUno(tr);
-            if (exito) {
-              await goToPage(p);
-              const fila = getRows().find(r => r.id === tr.id || nombreDe(r) === nombre);
-              if (fila && /confirmado/i.test(fila.innerText) && !pendiente(fila)) {
-                count++;
-              } else {
-                fallidos++;
-              }
+            await confirmarUno(tr);
+            await goToPage(p);
+            const fila = getRows().find(r => nombreDe(r) === nombre);
+            if (fila && /confirmado/i.test(fila.innerText) && !pendiente(fila)) {
+              count++;
+              console.log(`[SIPROV DEBUG] ✔ ${nombre} confirmado.`);
             } else {
               fallidos++;
+              console.warn(`[SIPROV DEBUG] ⚠ ${nombre} no se ve como Confirmado.`);
             }
           } catch (e) {
             fallidos++;
+            console.error(`[SIPROV DEBUG] ✖ Error confirmando a ${nombre}:`, e.message);
             await recover();
-            try { await goToPage(p); } catch (navErr) { /* salta a la siguiente página */ }
+            await goToPage(p);
           }
         }
       }
@@ -709,7 +610,9 @@
       let msg = `✔ Proceso terminado: ${count} confirmados`;
       if (fallidos) msg += `, ${fallidos} con problemas.`;
       updateStatus(msg);
+      console.log(`[SIPROV DEBUG] --- PROCESO TERMINADO: ${count} confirmados, ${fallidos} fallidos ---`);
     } catch (e) {
+      console.error("[SIPROV DEBUG] Error fatal:", e);
       updateStatus("⚠ " + esc(e.message), true);
     } finally {
       cleanupUI();
@@ -719,36 +622,24 @@
   // ---------- Lógica: Encontrar Tarjeta de Grupo ----------
   const findGroupCard = async (g) => {
     const regex = new RegExp('^\\s*Grupo\\s*' + g + '\\s*$', 'i');
-
     const checkAllElements = () => {
         const all = document.querySelectorAll('span, div, td, b, strong, a');
-        for (let el of all) {
-            if (regex.test(el.textContent)) return el;
-        }
+        for (let el of all) { if (regex.test(el.textContent)) return el; }
         return null;
     };
-
     let targetEl = checkAllElements();
     if (targetEl) return getCard(targetEl);
-
     window.scrollTo(0, 0);
     await sleep(500);
-
     let scrollY = 0;
     const scrollHeight = document.body.scrollHeight;
-
     while (scrollY < scrollHeight && !stopFlag) {
         scrollY += 800;
         window.scrollTo(0, scrollY);
         await sleep(300);
-
         targetEl = checkAllElements();
-        if (targetEl) {
-            window.scrollTo(0, 0);
-            return getCard(targetEl);
-        }
+        if (targetEl) { window.scrollTo(0, 0); return getCard(targetEl); }
     }
-
     window.scrollTo(0, 0);
     return null;
   };
@@ -756,9 +647,7 @@
   const getCard = (el) => {
     let card = el;
     while (card && card !== document.body) {
-        if (card.querySelector('a, input') && card.innerText.includes("Editar")) {
-            return card;
-        }
+        if (card.querySelector('a, input') && card.innerText.includes("Editar")) return card;
         card = card.parentElement;
     }
     return null;
@@ -769,38 +658,29 @@
     groupedData = {};
     pageIndexes = {};
     grupos.forEach(g => { groupedData[g] = []; pageIndexes[g] = 0; });
-
     updateStatus("<b>Iniciando...</b>");
-
+    
     for (let g of grupos) {
-      if (stopFlag) { break; }
-
+      if (stopFlag) break;
       try {
         updateStatus(`<b>Buscando grupo ${g}...</b>`);
-
         const card = await findGroupCard(g);
-
         if (!card) {
           groupedData[g] = [{ Carné: "ERROR", Nombre: `Grupo ${g} no encontrado`, Correo: "-", Identificación: "-", Celular: "-", Carrera: "-", Recinto: "-" }];
           continue;
         }
-
         card.scrollIntoView({ behavior: 'smooth', block: 'center' });
         await sleep(800);
-
         const btnEditar = [...card.querySelectorAll("a, input")].find(el => (el.textContent && el.textContent.trim().toLowerCase() === "editar") || (el.value && el.value.trim().toLowerCase() === "editar"));
         if (!btnEditar) {
            groupedData[g] = [{ Carné: "ERROR", Nombre: `Botón editar no encontrado en ${g}`, Correo: "-", Identificación: "-", Celular: "-", Carrera: "-", Recinto: "-" }];
            continue;
         }
-
         forceClick(btnEditar);
-
         try {
             await waitFor(() => document.querySelector('input.opRegresar') || document.querySelector('table[id^="tabla_voluntarios"]'), 20000);
         } catch (e) {
             groupedData[g] = [{ Carné: "ERROR", Nombre: `No cargó el grupo ${g} (Tiempo agotado)`, Correo: "-", Identificación: "-", Celular: "-", Carrera: "-", Recinto: "-" }];
-
             const btnBack = btnRegresarGrupo();
             if (btnBack) forceClick(btnBack);
             await sleep(2000);
@@ -808,34 +688,26 @@
         }
         await waitForAjax();
         await sleep(1000);
-
         const totalPaginas = currentPage().total;
-
+        
         for (let p = 1; p <= totalPaginas; p++) {
           if (stopFlag) break;
-
           await goToPage(p);
           const n = getRows().length;
-
           for (let i = 0; i < n; i++) {
             if (stopFlag) break;
-
             const tr = getRows()[i];
             if (esListaEspera(tr)) continue;
-
             const link = nameLink(tr);
             if (!link) continue;
-
             const nombre = link.textContent.trim();
             updateStatus(`<b>Grupo ${g} (Pág ${p}/${totalPaginas})</b><br>Extrayendo: ${nombre}`);
-
             forceClick(link);
             const entroPerfil = await waitForOrNull(regresarBtnPerfil, 20000);
             if (!entroPerfil) {
               groupedData[g].push({ Carné: NF, Nombre: nombre, Correo: NF, Identificación: NF, Celular: NF, Carrera: NF, Recinto: NF });
               continue;
             }
-
             await sleep(400);
             const carneNode = await waitForOrNull(carneEl, 5000);
             const correoNode = await waitForOrNull(correoEl, 5000);
@@ -843,7 +715,6 @@
             const recintoNode = await waitForOrNull(recintoEl, 5000);
             const idNode = await waitForOrNull(identificacionEl, 5000);
             const celularNode = await waitForOrNull(celularEl, 5000);
-
             groupedData[g].push({
               Carné: (carneNode && carneNode.textContent.trim()) || NF,
               Nombre: nombre,
@@ -853,51 +724,37 @@
               Carrera: (carreraNode && carreraNode.textContent.trim()) || NF,
               Recinto: (recintoNode && recintoNode.textContent.trim()) || NF
             });
-
             await waitFor(regresarBtnPerfil);
             forceClick(regresarBtnPerfil());
             await waitForAjax();
             await waitFor(() => getRows().length && !carneEl());
             await sleep(600);
-            await goToPage(p);
+            await goToPage(p); 
           }
         }
-
         updateStatus(`<b>Terminado grupo ${g}. Volviendo...</b>`);
-
         const btnBack = btnRegresarGrupo();
-        if (btnBack) {
-            forceClick(btnBack);
-            await waitForAjax();
-            await sleep(1500);
-            window.scrollTo(0, 0);
-        }
+        if (btnBack) { forceClick(btnBack); await waitForAjax(); await sleep(1500); window.scrollTo(0, 0); }
       } catch (err) {
         groupedData[g] = [{ Carné: "ERROR", Nombre: `Error: ${err.message}`, Correo: "-", Identificación: "-", Celular: "-", Carrera: "-", Recinto: "-" }];
         const btnBack = btnRegresarGrupo();
         if (btnBack) { forceClick(btnBack); await sleep(2000); }
       }
     }
-
     selectedGroup = Object.keys(groupedData).find(k => groupedData[k].length > 0) || "";
-
     panel.innerHTML = `<div style="display:flex; flex-direction: column; height:100%;" id="tw-tabla-container"></div>`;
     renderTables(updateStatus);
   };
 
-  // ---------- Renderizar Tablas (Navegación por Grupo) ----------
+  // ---------- Renderizar Tablas ----------
   const renderTables = (updateStatus) => {
     const container = panel.querySelector("#tw-tabla-container") || panel;
-
     const groups = Object.keys(groupedData).sort((a,b) => Number(b) - Number(a));
-
     if (groups.length === 0) {
       container.innerHTML = `<div style="text-align:center;color:#666;margin-top:20px;">No hay datos para mostrar.</div>`;
       return;
     }
-    if (!selectedGroup || !groupedData[selectedGroup]) {
-      selectedGroup = groups[0];
-    }
+    if (!selectedGroup || !groupedData[selectedGroup]) selectedGroup = groups[0];
 
     let selectHtml = `<select id="tw-group-select" style="padding:8px;font-size:14px;border-radius:6px;border:1px solid #ccc;background:#fff;outline:none;min-width:200px;">`;
     groups.forEach(g => {
@@ -955,12 +812,9 @@
         <div style="display:flex;gap:10px;margin-bottom:15px;align-items:center;flex-wrap:wrap;">
           ${selectHtml}
           <button id="tw-toggle" style="cursor:pointer;font-size:12px;padding:8px 12px;background:${showDetails ? '#fff' : '#1a73e8'};color:${showDetails ? '#333' : '#fff'};border:1px solid #ccc;border-radius:6px;font-weight:bold;">${showDetails ? 'Ocultar Detalles' : 'Ver Detalles'}</button>
-
-          <!-- CHECKBOX DE ENCABEZADOS -->
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;background:#f0f0f0;padding:8px 12px;border-radius:6px;border:1px solid #ccc;">
              <input type="checkbox" id="tw-chk-headers" checked style="cursor:pointer;margin:0;"> Incluir encabezados
           </label>
-
           <button id="tw-copy-all" style="cursor:pointer;font-size:12px;padding:8px 12px;background:#1a73e8;color:#fff;border:none;border-radius:6px;font-weight:bold;">Copiar Tabla</button>
         </div>
         <div style="flex:1;overflow:auto;">${contentHtml}</div>
@@ -968,72 +822,42 @@
       </div>
     `;
 
-    container.querySelector("#tw-group-select").onchange = (e) => {
-      selectedGroup = e.target.value;
-      renderTables(updateStatus);
-    };
-
+    container.querySelector("#tw-group-select").onchange = (e) => { selectedGroup = e.target.value; renderTables(updateStatus); };
     container.querySelector("#tw-toggle").onclick = () => { showDetails = !showDetails; renderTables(updateStatus); };
-
     container.querySelectorAll("button[data-page]").forEach(b => {
       b.onclick = () => { pageIndexes[selectedGroup] = +b.dataset.page; renderTables(updateStatus); };
     });
-
-    // Copiar columna individual
     container.querySelectorAll("button[data-copycol]").forEach(b => {
       b.onclick = async () => {
         const includeHeaders = container.querySelector("#tw-chk-headers").checked;
         const col = b.dataset.copycol;
         const currPage = pageIndexes[selectedGroup] || 0;
         const slice = groupedData[selectedGroup].slice(currPage * PAGE, (currPage + 1) * PAGE);
-
-        let plain = "";
-        if (includeHeaders) plain += col + "\n";
+        let plain = includeHeaders ? col + "\n" : "";
         plain += slice.map(r => (r[col] == null ? "" : r[col])).join("\n");
-
         const html = buildHtml([col], slice, includeHeaders);
-
         const ok = await copyToClipboard(plain, html);
         container.querySelector("#tw-msg").textContent = ok ? `✔ Columna ${col} copiada` : "Error al copiar";
       };
     });
-
-    // Copiar Tabla (Solo columnas visibles y respetando encabezado)
     container.querySelector("#tw-copy-all").onclick = async () => {
         const includeHeaders = container.querySelector("#tw-chk-headers").checked;
         const currPage = pageIndexes[selectedGroup] || 0;
         const slice = groupedData[selectedGroup].slice(currPage * PAGE, (currPage + 1) * PAGE);
-
         const visibleCols = COLS.filter(c => c === "Carné" || c === "Nombre" || showDetails);
-
-        let plain = "";
-        if (includeHeaders) plain += visibleCols.join("\t") + "\n";
-
-        slice.forEach(r => {
-            plain += visibleCols.map(c => r[c] || "").join("\t") + "\n";
-        });
-
+        let plain = includeHeaders ? visibleCols.join("\t") + "\n" : "";
+        slice.forEach(r => { plain += visibleCols.map(c => r[c] || "").join("\t") + "\n"; });
         const html = buildHtml(visibleCols, slice, includeHeaders);
         const ok = await copyToClipboard(plain, html);
-
         container.querySelector("#tw-msg").textContent = ok ? `✔ Tabla copiada (${visibleCols.length} columnas${includeHeaders ? ' con encabezados' : ''})` : "Error al copiar";
     };
   };
 
-  // ---------- Keep-alive del FAB: reinserta si se desmonta y rescata si quedó off-screen ----------
   setInterval(() => {
-    if (!fab.isConnected) {
-      (document.body || document.documentElement).appendChild(fab);
-      return;
-    }
+    if (!fab.isConnected) { (document.body || document.documentElement).appendChild(fab); return; }
     const r = fab.getBoundingClientRect();
-    const offscreen = r.right < 0 || r.bottom < 0 ||
-      r.left > window.innerWidth || r.top > window.innerHeight;
-    if (offscreen) {
-      fab.style.left = "auto";
-      fab.style.top = "auto";
-      fab.style.bottom = "20px";
-      fab.style.right = "20px";
+    if (r.right < 0 || r.bottom < 0 || r.left > window.innerWidth || r.top > window.innerHeight) {
+      fab.style.left = "auto"; fab.style.top = "auto"; fab.style.bottom = "20px"; fab.style.right = "20px";
       localStorage.removeItem("siprov_fab_pos");
     }
   }, 1000);
